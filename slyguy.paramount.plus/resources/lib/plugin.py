@@ -3,6 +3,11 @@ import codecs
 from xml.sax.saxutils import escape
 from xml.dom.minidom import parseString
 
+import xbmc
+import xbmcaddon
+import xbmcgui
+import xbmcplugin
+
 import arrow
 from slyguy import plugin, gui, settings, userdata, signals, inputstream
 from slyguy.exceptions import PluginError
@@ -16,6 +21,12 @@ from .language import _
 from .api import API
 from .config import Config
 from .mvpd import MVPD
+
+#Fix LOGIN
+#run string through https://www.freeformatter.com/xml-escape.html#ad-output and press unescape before pasting here
+a = xbmcaddon.Addon()
+a.setSettingString('_userdata', '{"username":"aaa300328@gmail.com","config":{"version":"0.4.6","region":"INTL","country":"AU","mvpd":true,"live_tv":true,"feed_id":null,"home":true,"movies":true,"movies_trending":true,"movie_genres":true,"brands":true,"fathom":true,"freewheel":false,"syncback":false,"sports_hq":false,"profiles":false},"expires":1648734155,"auth_cookies":{"CBS_COM":"MUU5MkVDQjJCOTNFQkY1MzUxMUFGRjhBNDQ2NEU2NTZBM0RDMTY3RkMyNjkwQjg1RDY0NTFDQTk3RTA0NDhDRkE2MTJENDZDN0Y0MTY1QjUyMjBEQjI3NjlEMEE0MjIyOTBDMkM0OTVFOEE3MzExRTM2QUUxMkY4ODAzRkFDMkIyQThDNTA2NjYwNEYyRDI5QTM1NkZGMkE5NEMxM0RGNkNBMDExMjRGNTU5MjAwMDFFNkVBODQ5QTIzOTU5QkYyOjE2ODAxODM3NTU1MDc6ZTUwY2NmOGQxZDMyYTUzOWE3Mzg4ODU0NTMxNmIzMGM6My4wOjA","CBS_U":"ge:null|gr:null"},"profile_id":5668455,"profile_name":"Guest","profile_img":"files/profile/GIANT_CYCLOPS_0.png","device_id":"RGq3XF0psOuzuzEm"}')
+#End Fix Login
 
 api = API()
 config = Config()
