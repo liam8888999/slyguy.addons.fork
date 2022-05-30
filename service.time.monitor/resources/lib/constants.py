@@ -1,1 +1,0 @@
-POLL_TIME = 60 #Seconds
