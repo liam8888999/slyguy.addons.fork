@@ -46,8 +46,6 @@ def index(**kwargs):
                 folder.add_item(label=_(_.SPORT, _bold=True), path=plugin.url_for(nav, key='sport', title=_.SPORT))
 
         folder.add_item(label=_(_.KIDS, _bold=True), path=plugin.url_for(nav, key='kids', title=_.KIDS))
-        folder.add_item(label=_(_.MY_LIST, _bold=True), path=plugin.url_for(my_list))
-        folder.add_item(label=_(_.CONTINUE_WATCHING, _bold=True), path=plugin.url_for(continue_watching))
         folder.add_item(label=_(_.SEARCH, _bold=True), path=plugin.url_for(search))
 
         if settings.getBool('bookmarks', True):
