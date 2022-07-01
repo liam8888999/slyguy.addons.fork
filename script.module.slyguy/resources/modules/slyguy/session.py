@@ -40,6 +40,7 @@ class RawSession(requests.Session):
         self._session_cache = {}
         self._rewrites = []
         self._proxy = None
+        self._cert = None
 
     def set_dns_rewrites(self, rewrites):
         for entries in rewrites:
@@ -50,17 +51,40 @@ class RawSession(requests.Session):
             new_entries = []
             for entry in entries:
                 _type = 'skip'
-                if entry.lower().startswith('_http'):
-                    _type = 'url_sub'
-                    entry = entry[1:]
-                elif '://' in entry:
+                if entry.startswith('>'):
                     _type = 'proxy'
+                    entry = entry[1:]
                 elif entry[0].isdigit():
                     _type = 'dns'
+                else:
+                    _type = 'url_sub'
                 new_entries.append([_type, entry])
 
             # Make sure dns is done last
             self._rewrites.append([pattern, sorted(new_entries, key=lambda x: x[0] == 'dns')])
+
+    def set_cert(self, cert):
+        self._cert = cert
+        log.debug('Cert set to: {}'.format(cert))
+
+    def _get_cert(self):
+        if not self._cert:
+            return None
+        pem, key = self._cert
+        if pem.lower().startswith('http'):
+            log.debug('Downloading pem: {}'.format(pem))
+            resp = requests.get(pem)
+            pem = xbmc.translatePath('special://temp/temp.pem')
+            with open(pem, 'wb') as f:
+                f.write(resp.content)
+        if key.lower().startswith('http'):
+            log.debug('Downloading key: {}'.format(key))
+            resp = requests.get(key)
+            key = xbmc.translatePath('special://temp/temp.key')
+            with open(key, 'wb') as f:
+                f.write(resp.content)
+        self._cert = (xbmc.translatePath(pem), xbmc.translatePath(key))
+        return self._cert
 
     def set_proxy(self, proxy):
         self._proxy = proxy
@@ -138,6 +162,10 @@ class RawSession(requests.Session):
                 'http': session_data['proxy'],
                 'https': session_data['proxy'],
             }
+
+        if self._cert:
+            kwargs['verify'] = False
+            kwargs['cert'] = self._get_cert()
 
         if 'verify' not in kwargs:
             kwargs['verify'] = self._verify
