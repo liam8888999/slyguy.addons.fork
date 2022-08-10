@@ -7,7 +7,7 @@
     <category label="$ADDON[script.module.slyguy 32035]">
         <setting label="$ADDON[script.module.slyguy 32063]" id="live_play_type" type="enum" default="0" lvalues="32066|32065|32064"/>
         <setting label="$ADDON[script.module.slyguy 32061]" id="default_quality" type="enum" default="1" lvalues="32055|32043|32060|32048|32054|32073"/>
-      
+      <setting label="30010" type="bool" id="h265" default="false"/>
         <setting label="$ADDON[script.module.slyguy 32076]" type="bool" id="use_ia_hls_live" default="true" visible="false"/>
         <setting label="$ADDON[script.module.slyguy 32023]" type="bool" id="use_ia_hls_vod" default="true" visible="false"/>
     </category>
