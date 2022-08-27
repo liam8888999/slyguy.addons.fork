@@ -154,12 +154,10 @@ def merge():
     return lambda f: decorator(f)
 
 # @plugin.search()
-def search():
+def search(key=None):
     def decorator(f):
         @wraps(f)
-        def decorated_function(query=None, new=None, remove=None, page=1, **kwargs):
-            page = int(page)
-
+        def decorated_function(query=None, new=None, remove=None, **kwargs):
             if remove:
                 queries = userdata.get('queries', [])
                 if remove in queries:
@@ -199,43 +197,53 @@ def search():
                 return folder
 
             else:
-                @pagination()
-                def search(page=1, **kwargs):
+                @pagination(key=key)
+                def search(**kwargs):
                     folder = Folder(_(_.SEARCH_FOR, query=query))
-                    items, more_results = f(query=query, page=page, **kwargs)
+                    items, more_results = f(query=query, **kwargs)
                     folder.add_items(items)
                     return folder, more_results
-                return search(page, **kwargs)
+                return search(**kwargs)
 
         return decorated_function
     return lambda f: decorator(f)
 
 # @plugin.pagination()
-def pagination():
+def pagination(key=None):
     def decorator(f):
         @wraps(f)
-        def decorated_function(page=1, **kwargs):
+        def decorated_function(**kwargs):
             multiplier = settings.getInt('pagination_multiplier') or 1
 
-            page = int(page)
-            real_page = ((page-1)*multiplier)+1
+            if key is None:
+                page = int(kwargs.get('page', 1))
+                real_page = ((page-1)*multiplier)+1
+                kwargs['page'] = real_page
 
             items = []
             for i in range(multiplier):
-                folder, more_results = f(page=real_page, **kwargs)
-                real_page += 1
+                if key is None:
+                    folder, more_results = f(**kwargs)
+                    kwargs['page'] += 1
+                else:
+                    folder, more_results, key_val = f(**kwargs)
+                    kwargs[key] = key_val
+
                 items.extend(folder.items)
                 if not more_results:
                     break
 
             folder.items = items
-            # if page > 1:
-            #     folder.title += ' (Page {})'.format(page)
 
             if more_results:
+                if key is None:
+                    _kwargs = {'page': page+1}
+                else:
+                    _kwargs = {key: kwargs[key]}                    
+
                 folder.add_item(
-                    label = _(_.NEXT_PAGE, page=page+1),
-                    path = router.add_url_args(kwargs[ROUTE_URL_TAG], page=page+1),
+                    label = _(_.NEXT_PAGE),
+                    path = router.add_url_args(kwargs[ROUTE_URL_TAG], **_kwargs),
                     specialsort = 'bottom',
                 )
 
@@ -547,13 +555,13 @@ def resume_from(seconds):
         return 0
 
 def live_or_start(seconds=1):
-    index = gui.context_menu([_.PLAY_FROM_LIVE_CONTEXT, _.PLAY_FROM_BEGINNING])
+    index = gui.context_menu([_.PLAY_FROM_BEGINNING, _.PLAY_FROM_LIVE_CONTEXT])
     if index == -1:
         return -1
     elif index == 0:
-        return 0
-    else:
         return seconds
+    else:
+        return 0
 
 #Plugin.Item()
 class Item(gui.Item):
