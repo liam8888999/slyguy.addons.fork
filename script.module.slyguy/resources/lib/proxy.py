@@ -28,15 +28,15 @@ from slyguy.router import add_url_args
 from .language import _
 
 CODECS = [
+    ['mp4v', 'MPEG-4'],
+    ['mp4s', 'MPEG-4'],
     ['avc', 'H.264'],
     ['hvc', 'H.265'],
     ['hev', 'H.265'],
-    ['mp4v', 'MPEG-4'],
-    ['mp4s', 'MPEG-4'],
+    ['hdr', 'H.265 HDR'],
     ['dvh', 'H.265 Dolby Vision'],
 ]
 
-CODEC_RANKING = ['MPEG-4', 'H.264', 'H.265', 'HDR', 'H.265 Dolby Vision']
 ATTRIBUTELISTPATTERN = re.compile(r'''((?:[^,"']|"[^"]*"|'[^']*')+)''')
 
 PROXY_GLOBAL = {
@@ -264,8 +264,8 @@ class RequestHandler(BaseHTTPRequestHandler):
 
             for codec in _codecs:
                 for _codec in CODECS:
-                    if codec.lower().startswith(_codec[0].lower()) and _codec[1] in CODEC_RANKING:
-                        rank = CODEC_RANKING.index(_codec[1])
+                    if codec.lower().startswith(_codec[0].lower()):
+                        rank = CODECS.index(_codec)
                         if not highest or rank > highest:
                             highest = rank
 
@@ -281,17 +281,19 @@ class RequestHandler(BaseHTTPRequestHandler):
             # Same resolution - compare codecs
             a_rank = codec_rank(a['codecs'])
             b_rank = codec_rank(b['codecs'])
+            a_bandwidth = a['bandwidth']
+            b_bandwidth = b['bandwidth']
 
             if a_rank > b_rank:
-                return 1
+                a_bandwidth += 3000000
             elif a_rank < b_rank:
-                return -1
+                b_bandwidth += 3000000
 
             # Same codec rank - compare bandwidth
-            if a['bandwidth'] and b['bandwidth']:
-                if a['bandwidth'] > b['bandwidth']:
+            if a_bandwidth and b_bandwidth:
+                if a_bandwidth > b_bandwidth:
                     return 1
-                elif a['bandwidth'] < b['bandwidth']:
+                elif a_bandwidth < b_bandwidth:
                     return -1
 
             # Same bandwidth - compare framerate
@@ -307,13 +309,10 @@ class RequestHandler(BaseHTTPRequestHandler):
             try: fps = _(_.QUALITY_FPS, fps=float(stream['frame_rate']))
             except: fps = ''
 
-            codec_string = ''
-            for codec in stream['codecs']:
-                for _codec in CODECS:
-                    if codec.lower().startswith(_codec[0].lower()):
-                        codec_string += ' ' + _codec[1]
+            index = codec_rank(stream['codecs'])
+            codec_string = CODECS[index][1] if index >= 0 else ''
 
-            return _(_.QUALITY_BITRATE, bandwidth=int((stream['bandwidth']/10000.0))/100.00, resolution=stream['resolution'], fps=fps, codecs=codec_string.strip()).replace('  ', ' ')
+            return _(_.QUALITY_BITRATE, bandwidth=int((stream['bandwidth']/10000.0))/100.00, resolution=stream['resolution'], fps=fps, codecs=codec_string).replace('  ', ' ')
 
         if self._session.get('selected_quality') is not None:
             if self._session['selected_quality'] == QUALITY_EXIT:
@@ -523,6 +522,12 @@ class RequestHandler(BaseHTTPRequestHandler):
                         highest_bandwidth = bandwidth
 
                     if 'video' in attribs.get('mimeType', '') and not is_trick:
+                        is_hdr = False
+                        for supelem in adap_set.getElementsByTagName('SupplementalProperty'):
+                            if supelem.getAttribute('schemeIdUri') == 'http://dashif.org/metadata/hdr':
+                                is_hdr = True
+                                break
+
                         is_video = True
 
                         resolution = ''
@@ -540,6 +545,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                                 frame_rate = ''
 
                         codecs = [x for x in attribs.get('codecs', '').split(',') if x]
+                        if is_hdr:
+                            codecs.append('hdr')
                         stream = {'bandwidth': bandwidth, 'resolution': resolution, 'frame_rate': frame_rate, 'codecs': codecs, 'rep_index': rep_index, 'elem': stream}
                         all_streams.append(stream)
                         rep_index += 1
@@ -813,12 +820,12 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return string[1:-1]
             return string
 
-        def _process_media(line, prefix):
+        def _process_media(line, prefix, remove_quotes=False):
             attribs = {}
 
             for row in ATTRIBUTELISTPATTERN.split(line.replace(prefix+':', ''))[1::2]:
                 name, value = row.split('=', 1)
-                attribs[name.upper()] = _remove_quotes(value.strip()) if prefix == '#EXT-X-MEDIA' else value.strip()
+                attribs[name.upper()] = _remove_quotes(value.strip()) if remove_quotes else value.strip()
 
             return attribs
 
@@ -850,7 +857,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 continue
 
             if line.startswith('#EXT-X-MEDIA'):
-                attribs = _process_media(line, '#EXT-X-MEDIA')
+                attribs = _process_media(line, '#EXT-X-MEDIA', remove_quotes=True)
                 if not attribs:
                     continue
 
@@ -878,14 +885,18 @@ class RequestHandler(BaseHTTPRequestHandler):
             elif stream_inf and not line.startswith('#'):
                 attribs = _process_media(stream_inf, '#EXT-X-STREAM-INF')
 
-                codecs = [x for x in attribs.get('CODECS', '').split(',') if x]
-                bandwidth = int(attribs.get('BANDWIDTH') or 0)
-                resolution = attribs.get('RESOLUTION', '')
-                frame_rate = attribs.get('FRAME-RATE', '')
+                codecs = [x for x in _remove_quotes(attribs.get('CODECS', '')).split(',') if x]
+                bandwidth = int(_remove_quotes(attribs.get('BANDWIDTH')) or 0)
+                resolution = _remove_quotes(attribs.get('RESOLUTION', ''))
+                frame_rate = _remove_quotes(attribs.get('FRAME-RATE', ''))
+                video_range = _remove_quotes(attribs.get('VIDEO-RANGE', ''))
 
                 url = line
                 if '://' in url:
                     url = '/'+'/'.join(url.lower().split('://')[1].split('/')[1:])
+
+                if video_range == 'PQ':
+                    codecs.append('hdr')
 
                 stream = {'bandwidth': int(bandwidth), 'resolution': resolution, 'frame_rate': frame_rate, 'codecs': codecs, 'url': url, 'index': len(video)}
                 all_streams.append(stream)
