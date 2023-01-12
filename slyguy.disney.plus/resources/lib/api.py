@@ -215,13 +215,14 @@ class API(object):
     def _endpoint(self, href, **kwargs):
         profile, session = self.profile()
 
+        self._cache['basic_tier'] = 'DISNEY_PLUS_NO_ADS' not in session['entitlements']
         region = session['portabilityLocation']['countryCode'] if session['portabilityLocation'] else session['location']['countryCode']
         maturity = session['preferredMaturityRating']['impliedMaturityRating'] if session['preferredMaturityRating'] else 1850
         kids_mode = profile['attributes']['kidsModeEnabled'] if profile else False
         appLanguage = profile['attributes']['languagePreferences']['appLanguage'] if profile else 'en-US'
 
         _args = {
-            'apiVersion': API_VERSION,
+            'apiVersion': '{apiVersion}',
             'region': region,
             'impliedMaturityRating': maturity,
             'kidsModeEnabled': 'true' if kids_mode else 'false',
@@ -230,7 +231,14 @@ class API(object):
         }
         _args.update(**kwargs)
 
-        return href.format(**_args)
+        href = href.format(**_args)
+
+        # on the app, this changes based on endpoint
+        api_version = '5.1' # [3.0, 3.1, 3.2, 5.0, 3.3, 5.1, 6.0, 5.2]
+        # if '/CuratedSet/' in href or '/RecommendationSet/' in href or '/TrendingSet/' in href or '/WatchlistSet/' in href:
+        #     api_version = '3.1' #3.1 has description
+
+        return href.format(apiVersion=api_version)
 
     def profile(self):
         session = self._cache.get('session')
@@ -331,28 +339,51 @@ class API(object):
     def playback_data(self, playback_url, wv_secure=False):
         self._set_token()
 
-        config = self.get_config()
-        scenario = config['services']['media']['extras']['restrictedPlaybackScenario']
+        headers = {'accept': 'application/vnd.media-service+json; version={}'.format(6 if self._cache['basic_tier'] else 5), 'authorization': self._cache.get('access_token'), 'x-dss-feature-filtering': 'true'}
 
-        if wv_secure:
-            #scenario = config['services']['media']['extras']['playbackScenarioDefault']
-            scenario = 'tv-drm-ctr'
+        payload = {
+            "playback": {
+                "attributes": {
+                    "codecs": {
+                        'supportsMultiCodecMaster': False, #if true outputs all codecs and resoultion in single playlist
+                    },
+                    "protocol": "HTTPS",
+                    #"ads": "",
+                    "frameRates": [60],
+                    "assetInsertionStrategy": "SGAI" if self._cache['basic_tier'] else "NONE",
+                    "playbackInitializationContext": "online"
+                },
+            }
+        }
 
-            if settings.getBool('h265', False):
-                scenario += '-h265'
+        video_ranges = []
+        audio_types = []
 
-                if settings.getBool('dolby_vision', False):
-                    scenario += '-dovi'
-                elif settings.getBool('hdr10', False):
-                    scenario += '-hdr10'
+        # atmos not yet supported on version=6 (basic tier). Add in-case support is added
+        if settings.getBool('dolby_atmos', False):
+            audio_types.append('atmos')
 
-                if settings.getBool('dolby_atmos', False):
-                    scenario += '-atmos'
+        if wv_secure and settings.getBool('dolby_vision', False):
+            video_ranges.append('DOLBY_VISION')
 
-        headers = {'accept': 'application/vnd.media-service+json; version=5', 'authorization': self._cache.get('access_token'), 'x-dss-feature-filtering': 'true'}
+        if wv_secure and settings.getBool('hdr10', False):
+            video_ranges.append('HDR10')
 
+        if settings.getBool('hevc', False):
+            payload['playback']['attributes']['codecs'] = {'video': ['h264', 'h265']}
+
+        if audio_types:
+            payload['playback']['attributes']['audioTypes'] = audio_types
+
+        if video_ranges:
+            payload['playback']['attributes']['videoRanges'] = video_ranges
+
+        if not wv_secure:
+            payload['playback']['attributes']['resolution'] = {'max': ['1280x720']}
+
+        scenario = 'ctr-high' if wv_secure else 'ctr-regular'
         endpoint = playback_url.format(scenario=scenario)
-        playback_data = self._session.get(endpoint, headers=headers).json()
+        playback_data = self._session.post(endpoint, headers=headers, json=payload).json()
         self._check_errors(playback_data)
 
         return playback_data

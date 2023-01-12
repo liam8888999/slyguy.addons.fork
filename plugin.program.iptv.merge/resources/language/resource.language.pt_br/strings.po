@@ -356,8 +356,8 @@ msgid "HTTP Request Forces Merge"
 msgstr "Requisição HTTP força união"
 
 msgctxt "#30081"
-msgid "Remove EPG Orphans"
-msgstr "Remover EPG órfãos"
+msgid "Remove EPG entries without matching playlist tvg-id"
+msgstr ""
 
 # # COMMON SETTINGS ##
 msgctxt "#32055"
