@@ -458,11 +458,46 @@ class Item(object):
                 'quality': QUALITY_DISABLED,
                 'middleware': {},
                 'type': None,
+                'h265': settings.common_settings.getBool('h265', False),
+                'hdr10': settings.common_settings.getBool('hdr10', False),
+                'dolby_vision': settings.common_settings.getBool('dolby_vision', False),
+                'dolby_atmos': settings.common_settings.getBool('dolby_atmos', False),
+                'ac3': settings.common_settings.getBool('ac3', False),
+                'ec3': settings.common_settings.getBool('ec3', False),
                 'verify': settings.common_settings.getBool('verify_ssl', True),
                 'timeout': settings.common_settings.getInt('http_timeout', 30),
                 'dns_rewrites': get_dns_rewrites(self.dns_rewrites),
                 'proxy_server': settings.get('proxy_server') or settings.common_settings.get('proxy_server'),
+                'max_width': settings.common_settings.getInt('max_width', 0),
+                'max_height': settings.common_settings.getInt('max_width', 0),
+                'max_channels': settings.common_settings.getInt('max_channels', 0),
             }
+
+            #######################################
+            ## keep old setting values working until new settings system implemented
+            legacy_map = {
+                'h265': ['hevc','enable_h265',],
+                'hdr10': ['enable_hdr',],
+                'dolby_vision': [],
+                'dolby_atmos': ['atmos_enabled',],
+                'ac3': ['ac3_enabled',],
+                'ec3': ['ec3_enabled',],
+                '4k': ['4k_enabled','enable_4k']
+            }
+
+            for key in legacy_map:
+                #add ourself so addon can override common
+                legacy_map[key].append(key)
+                for old_key in legacy_map[key]:
+                    val = settings.getBool(old_key, None)
+                    if val is not None:
+                        proxy_data[key] = val
+                        break
+
+            if proxy_data.pop('4k', None) == False:
+                proxy_data['max_width'] = 1920
+                proxy_data['max_height'] = 1080
+            #########################################
 
             if mimetype == 'application/vnd.apple.mpegurl':
                 proxy_data['type'] = 'm3u8'
@@ -470,10 +505,18 @@ class Item(object):
                 proxy_data['type'] = 'mpd'
 
             if settings.common_settings.getBool('ignore_display_resolution', False) is False:
-                proxy_data.update({
-                    'max_width': int(xbmc.getInfoLabel('System.ScreenWidth')),
-                    'max_height': int(xbmc.getInfoLabel('System.ScreenHeight')),
-                })
+                screen_width = int(xbmc.getInfoLabel('System.ScreenWidth') or 0)
+                screen_height = int(xbmc.getInfoLabel('System.ScreenHeight') or 0)
+                if screen_width:
+                    if not proxy_data['max_width']:
+                        proxy_data['max_width'] = screen_width
+                    else:
+                        proxy_data['max_width'] = min(screen_width, proxy_data['max_width'])
+                if screen_height:
+                    if not proxy_data['max_height']:
+                        proxy_data['max_height'] = screen_height
+                    else:
+                        proxy_data['max_height'] = min(screen_height, proxy_data['max_height'])
 
             proxy_data.update(self.proxy_data)
 
