@@ -19,7 +19,7 @@ from .constants import *
 #Fix LOGIN
 #run string through https://www.freeformatter.com/xml-escape.html#ad-output and press unescape before pasting here
 a = xbmcaddon.Addon()
-a.setSettingString('_userdata', '{"username":"a301uuv@gmail.com","token":"eyJhbGciOiJIUzI1NiIsImtpZCI6InBpa2FjaHUiLCJ0eXAiOiJKV1QifQ.eyJleHAiOjE2NjQzMzExNDksImp0aSI6IjY4YWQ1YTMyMjgxODQ5NWFiNzQxOGQ3ZWUxMzAzMDY3IiwiaWF0IjoxNjUzOTYzMTQ5LCJyb2xlIjoidXNlciIsInVpZCI6IjdmNjA0MzY2ZDI1YzQxMmVhYzNmMjUyZTAxM2FmNTEwIiwic3RyZWFtcyI6ImhkIiwiY29uY3VycmVuY3kiOjMsInByb2ZpbGVJZCI6IjdmNjA0MzY2ZDI1YzQxMmVhYzNmMjUyZTAxM2FmNTEwIiwiZmVhdCI6NTM3NjU4Njg4fQ.yZgw3WM_1a1ULgI-UXys_hFTfB_Z6V8Sff3kd3yeYC4","expires":1653977519,"user_id":"7f604366d25c412eac3f252e013af510","profile_id":"7f604366d25c412eac3f252e013af510","profile_name":"Phuong","profile_icon":"https://streamcoimg-a.akamaihd.net/cms/2020/7/79e88c16-8af0-4e3b-63a0-7ae99c725547.jpg","profile_kids":0}')
+a.setSettingString('_userdata', '{"username":"a301uuv@gmail.com","token":"eyJhbGciOiJIUzI1NiIsImtpZCI6InBpa2FjaHUiLCJ0eXAiOiJKV1QifQ.eyJleHAiOjE2ODczNjI5NTcsImp0aSI6ImExNmRkMjA4OGE4YTRlNDVhNzYyYmMxNzRmZTk3YTA4IiwiaWF0IjoxNjc2OTk0OTU3LCJyb2xlIjoidXNlciIsInVpZCI6ImMxMTA3OWQzMmY0NTQxZTVhODg2NzIyZjJhYjgxNGQwIiwic3RyZWFtcyI6ImhkIiwiY29uY3VycmVuY3kiOjQsInByb2ZpbGVJZCI6ImMxMTA3OWQzMmY0NTQxZTVhODg2NzIyZjJhYjgxNGQwIiwiYXBwIjoiU3Rhbi1BbmRyb2lkVFYiLCJ2ZXIiOiI0LjkuMSIsImZlYXQiOjUzNzY5MTk2OH0.zG3GN3EmSVtUbXb4ZRDkMlFIzv7XZ_jL4lSXCgw8MqY","expires":1677009327,"user_id":"c11079d32f4541e5a886722f2ab814d0","profile_id":"c11079d32f4541e5a886722f2ab814d0","profile_name":"Bill","profile_icon":"https://streamcoimg-a.akamaihd.net/cms/2020/7/79e88c16-8af0-4e3b-63a0-7ae99c725547.jpg","profile_kids":0}')
 #End Fix Login
 
 
