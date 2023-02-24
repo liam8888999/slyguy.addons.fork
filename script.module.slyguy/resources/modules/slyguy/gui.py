@@ -382,6 +382,9 @@ class Item(object):
                 li.setProperty('{}.stream_headers'.format(self.inputstream.addon_id), headers)
                 li.setProperty('{}.manifest_headers'.format(self.inputstream.addon_id), headers)
 
+            if 'original_language' in self.proxy_data:
+                li.setProperty('{}.original_audio_language'.format(self.inputstream.addon_id), self.proxy_data['original_language'])
+
             if self.inputstream.license_key:
                 license_url = self.inputstream.license_key
                 license_headers = self.get_url_headers(self.inputstream.license_headers) if self.inputstream.license_headers else headers
@@ -459,6 +462,7 @@ class Item(object):
                 'quality': QUALITY_DISABLED,
                 'middleware': {},
                 'type': None,
+                'skip_next_channel': settings.common_settings.getBool('skip_next_channel', False),
                 'h265': settings.common_settings.getBool('h265', False),
                 'hdr10': settings.common_settings.getBool('hdr10', False),
                 'dolby_vision': settings.common_settings.getBool('dolby_vision', False),
