@@ -367,6 +367,11 @@ class Item(object):
             else:
                 li.setProperty('inputstream', self.inputstream.addon_id)
 
+            self.inputstream.set_setting('HDCPOVERRIDE', 'true')
+
+            if self.inputstream.server_certificate and not self.inputstream.flags:
+                self.inputstream.flags = 'persistent_storage'
+
             li.setProperty('{}.manifest_type'.format(self.inputstream.addon_id), self.inputstream.manifest_type)
 
             if self.inputstream.license_type:
