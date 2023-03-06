@@ -10,13 +10,13 @@ from six.moves.urllib.parse import unquote_plus
 
 from slyguy import settings, database, gui
 from slyguy.log import log
-from slyguy.util import remove_file, hash_6, FileIO, gzip_extract, xz_extract, run_plugin, safe_copy
+from slyguy.util import remove_file, hash_6, FileIO, gzip_extract, xz_extract, run_plugin, safe_copy, unique
 from slyguy.session import Session, gdrivedl
 from slyguy.constants import ADDON_PROFILE, CHUNK_SIZE
 from slyguy.exceptions import Error
 
 from .constants import *
-from .models import Source, Playlist, EPG, Channel, merge_info, parse_attribs
+from .models import Source, Playlist, EPG, Channel, merge_info, parse_attribs, strip_quotes
 from .language import _
 from . import iptv_manager
 
@@ -139,6 +139,7 @@ class Merger(object):
         self.forced = forced
         self.tmp_file = os.path.join(self.working_path, 'iptv_merge_tmp')
         self._playlist_epgs = []
+        self._extgroups = []
 
     def _call_addon_method(self, plugin_url, file_path):
         plugin_url = plugin_url.replace('$FILE', file_path).replace('%24FILE', file_path)
@@ -254,7 +255,8 @@ class Merger(object):
             for line in infile:
                 line = line.strip()
 
-                if not line:
+                # allow empty lines before extm3u8
+                if not valid_file and not line:
                     continue
 
                 if not valid_file and '#EXTM3U' not in line:
@@ -280,6 +282,7 @@ class Merger(object):
 
                 if not channel:
                     channel = Channel()
+                    extgroups = []
 
                 if line.startswith('#EXTINF'):
                     channel.load_extinf(line)
@@ -290,7 +293,7 @@ class Merger(object):
                 elif line.startswith('#EXTGRP'):
                     value = line.split(':',1)[1].strip()
                     if value:
-                        channel.groups.extend(value.split(';'))
+                        extgroups.extend([strip_quotes(x) for x in value.split(';')])
 
                 elif line.startswith('#KODIPROP') or line.startswith('#EXTVLCOPT'):
                     value = line.split(':',1)[1].strip()
@@ -305,11 +308,13 @@ class Merger(object):
 
                 elif not line.startswith('#'):
                     if not line:
+                        self._extgroups.extend(extgroups)
                         channel = None
                         continue
 
                     channel.url = line
                     channel.playlist = playlist
+                    channel.groups.extend(extgroups)
 
                     if playlist.skip_playlist_groups:
                         channel.groups = []
@@ -434,11 +439,16 @@ class Merger(object):
             groups_disabled = settings.getBool('disable_groups', False)
 
             with codecs.open(working_path, 'w', encoding='utf8') as outfile:
-                outfile.write(u'#EXTM3U')
+                outfile.write(u'#EXTM3U\n')
 
+                groups = []
                 group_order = settings.get('group_order')
                 if group_order:
-                    outfile.write(u'\n\n#EXTGRP:{}'.format(group_order))
+                    groups.extend(group_order.split(';'))
+
+                groups.extend(self._extgroups)
+                for group in unique([x.strip() for x in groups if x.strip()]):
+                    outfile.write(u'\n#EXTGRP:"{}"'.format(group))
 
                 chno = starting_ch_no
                 tv_groups = []

@@ -428,6 +428,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def _parse_dash(self, response):
         data = response.stream.content.decode('utf8')
+        response.stream.content = b''
 
         ## SUPPORT NEW DOLBY FORMAT https://github.com/xbmc/inputstream.adaptive/pull/466
         data = data.replace('tag:dolby.com,2014:dash:audio_channel_configuration:2011', 'urn:dolby:dash:audio_channel_configuration:2011')
@@ -902,12 +903,29 @@ class RequestHandler(BaseHTTPRequestHandler):
         lines = []
         segments = []
 
-        for line in m3u8.splitlines():
-            if not line.startswith('#'):
-                line = line.strip()
-                if not line:
-                    continue
+        def line_ok(line):
+            # Remove sample-aes apple streaming
+            # See https://github.com/xbmc/inputstream.adaptive/issues/1007
+            if 'com.apple.streamingkeydelivery' in line and 'urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed' in m3u8:
+                return False
 
+            # Remove x-disc lines (BREAKS DISNEY)
+            # if line.startswith('#EXT-X-DISCONTINUITY'):
+            #     return False
+
+            return True
+
+        for line in m3u8.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+
+            if line.startswith('#'):
+                if not line_ok(line):
+                    log.debug('Removed: {}'.format(line))
+                    continue
+            else:
+                # below not needed with IA version >= 20.3.3 (https://github.com/xbmc/inputstream.adaptive/pull/1108)
                 segments.append(line.lower())
                 if '/beacon?' in line.lower() or '/beacon/' in line.lower():
                     parse = urlparse(line)
@@ -916,12 +934,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                         if key.lower() == 'redirect_path' or key.lower() == 'redirect_url':
                             line = params[key]
                             log.debug('M3U8 Fix: Beacon removed')
-
-            # Remove sample-aes apple streaming
-            # See https://github.com/xbmc/inputstream.adaptive/issues/1007
-            elif 'com.apple.streamingkeydelivery' in line and 'urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed' in m3u8:
-                log.debug('Removed com.apple.streamingkeydelivery EXT-X-KEY')
-                continue
 
             lines.append(line)
 
@@ -1152,6 +1164,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def _parse_m3u8(self, response):
         m3u8 = response.stream.content.decode('utf8')
+        response.stream.content = b''
 
         is_master = False
         if '#EXTM3U' not in m3u8:
@@ -1303,13 +1316,23 @@ class RequestHandler(BaseHTTPRequestHandler):
         response = self._proxy_request('HEAD', url)
         self._output_response(response)
 
-    def do_POST(self):
+    def do_POST(self, retry=True):
         url = self._get_url('POST')
         response = self._proxy_request('POST', url)
 
-        if response.status_code in (406,) and url == self._session.get('license_url') and not xbmc.getCondVisibility('System.Platform.Android') and gui.yes_no(_.WV_FAILED):
-            thread = threading.Thread(target=inputstream.install_widevine, kwargs={'reinstall': True})
-            thread.start()
+        if url == self._session.get('license_url'):
+            license_data = response.stream.content
+
+            if not self._session.get('license_init') and (not response.ok or not license_data):
+                # force wv install on next attempt
+                settings.set('_wv_last_check', 0)
+                settings.set('_wv_latest_hash', '')
+                log.error(license_data)
+                if not license_data:
+                    license_data = b'None'
+                gui.text(_(_.CHECK_WV_CDM, error=license_data.decode('utf8')), heading=_.WV_FAILED)
+
+            self._session['license_init'] = True
 
         self._output_response(response)
 
