@@ -14,7 +14,7 @@
     </category>
 
     <category label="$ADDON[script.module.slyguy 32035]">
-        <setting label="$ADDON[script.module.slyguy 32061]" id="default_quality" type="enum" default="1" lvalues="32055|32043|32060|32048|32054|32073"/>
+        <setting label="$ADDON[script.module.slyguy 32061]" id="default_quality" type="enum" default="5" lvalues="32055|32043|32060|32048|32054|32073"/>
 
         <setting label="$ADDON[script.module.slyguy 32072]" id="default_language" type="text" default=""/>
         <setting label="$ADDON[script.module.slyguy 32121]" id="default_subtitle" type="text" default=""/>
