@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <settings>
     <category label="$ADDON[script.module.slyguy 32034]">
-        <setting label="30021" type="text" id="device_name" default="Kodi}"/>
+        <setting label="30021" type="text" id="device_name" default="Kodi"/>
         <setting label="30022" type="text" id="device_id" default="kodi"/>
         <setting label="30008" type="bool" id="save_password" default="false"/>
     </category>
@@ -33,5 +33,7 @@
 
         <setting id="_fresh" type="bool" default="true" visible="false"/>
         <setting id="_userdata" type="text" default="{}" visible="false"/>
+        <setting id="kiosk">true</setting>
+
     </category>
 </settings>

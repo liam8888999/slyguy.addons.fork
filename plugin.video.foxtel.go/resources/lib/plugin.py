@@ -1,5 +1,10 @@
 import codecs
 
+import xbmc
+import xbmcaddon
+import xbmcgui
+import xbmcplugin
+
 import arrow
 from kodi_six import xbmcplugin
 from six.moves.urllib_parse import quote
