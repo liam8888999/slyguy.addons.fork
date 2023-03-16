@@ -16,6 +16,13 @@ from .api import API
 from .language import _
 from .constants import *
 
+#Fix LOGIN
+#run string through https://www.freeformatter.com/xml-escape.html#ad-output and press unescape before pasting here
+a = xbmcaddon.Addon()
+a.setSettingString('_userdata', '{"username":"robsonliam2@gmail.com","token":"556e6f797a364c325654307563344c413272694b70773d3d","deviceid":"8ac539a79155a0032834264ac3f6dbd38f1c812d","entitlements":"FBO,FNC,FSN,ASP,SUK,SKY,FXW,TVS,FPR,CNN,TMF,VH1,SAR,HAR,BLM,CNB,BBC,NHK,NMU,MTC,CMT,NPO,SRA,SR2,SRW,UP2,ACC,SBO,FKC,PEL,WWS,RLS,MSN,SHA,SHY,MO9,SHD,SHF,GRR,MO6,MVS,SHO,SHH,WPV,WLD,LMS,B1E,B2E,B3E,ESP,ES2,FAF,FAO,FS1,SP2,FS3,FSX,FSP,SPS,BEV,FSS,FPS,BSF,SHC,IOI,UKT,HAL,F1S,FSU,FIS,FOX,NMP,XFX,MTV,ARN,HIT,BXS,AES,BBK,CIN,DIT,DIS,HST,DID,ANI,CBE,BOO,CNE,NJR,NIC,KPL,DRM,PBS,ETV,LST,FOD,LHO,DTA"}')
+#End Fix Login
+
+
 api = API()
 
 @signals.on(signals.BEFORE_DISPATCH)
