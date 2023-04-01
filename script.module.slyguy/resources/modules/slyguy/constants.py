@@ -14,7 +14,7 @@ ADDON_FANART   = ADDON.getAddonInfo('fanart')
 ADDON_DEV      = bool(int(os.environ.get('SLYGUY_DEV', '0')))
 #################
 
-REPO_ADDON_ID = 'repository.slyguy'
+REPO_ADDON_ID = 'repository.liam3'
 DEPENDENCIES_ADDON_ID = 'slyguy.dependencies'
 COMMON_ADDON_ID = 'script.module.slyguy'
 COMMON_ADDON = xbmcaddon.Addon(COMMON_ADDON_ID)
