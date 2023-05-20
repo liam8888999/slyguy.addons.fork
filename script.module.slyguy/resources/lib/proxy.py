@@ -192,6 +192,8 @@ class RequestHandler(BaseHTTPRequestHandler):
 
             url = add_url_args(url, _path=path)
 
+        url = add_url_args(url, _headers=json.dumps(self._headers))
+
         dirs, files = run_plugin(url, wait=True)
         data = json.loads(unquote_plus(files[0]))
         self._headers.update(data.get('headers', {}))
@@ -1349,6 +1351,10 @@ class RequestHandler(BaseHTTPRequestHandler):
         if url == self._session.get('license_url'):
             license_data = response.stream.content
 
+            if ADDON_DEV:
+                with open(xbmc.translatePath('special://temp/license.data'), 'wb') as f:
+                    f.write(license_data)
+
             if not self._session.get('license_init') and (not response.ok or not license_data):
                 # force wv install on next attempt
                 settings.set('_wv_last_check', 0)
@@ -1358,12 +1364,15 @@ class RequestHandler(BaseHTTPRequestHandler):
                     license_data = b'None'
                 gui.text(_(_.CHECK_WV_CDM, error=license_data.decode('utf8')), heading=_.WV_FAILED)
 
-            self._session['license_init'] = True
+            self._session['license_init'] = license_data
 
         self._output_response(response)
 
 class Response(object):
-    status_code = 200
+    def __init__(self):
+        self.headers = {}
+        self.status_code = 200
+        self.content = b''
 
     @property
     def ok(self):
