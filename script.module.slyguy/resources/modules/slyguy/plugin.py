@@ -229,7 +229,7 @@ def pagination(key=None):
                 if key is None:
                     _kwargs = {'page': page+1}
                 else:
-                    _kwargs = {key: kwargs[key]}                    
+                    _kwargs = {key: kwargs[key]}
 
                 folder.add_item(
                     label = _(_.NEXT_PAGE),
@@ -790,8 +790,8 @@ def require_update():
             if updates[addon_id][0] == cur_version and time.time() > updates[addon_id][1] + UPDATE_TIME_LIMIT:
                 need_updated.append([addon_id, addon.getAddonInfo('name'), cur_version])
 
-    if need_updated:
-        raise PluginError(_(_.UPDATES_REQUIRED, updates_required='\n'.join(['[B]{} ({})[/B]'.format(entry[1], entry[2]) for entry in need_updated])))
+#    if need_updated:
+#        raise PluginError(_(_.UPDATES_REQUIRED, updates_required='\n'.join(['[B]{} ({})[/B]'.format(entry[1], entry[2]) for entry in need_updated])))
 
 def process_news():
     news = settings.common_settings.get('_news')
