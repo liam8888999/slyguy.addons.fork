@@ -18,7 +18,7 @@ from .smart_urls import get_dns_rewrites
 from .log import log
 from .language import _
 from .exceptions import SessionError, Error
-from .constants import DEFAULT_USERAGENT, CHUNK_SIZE, KODI_VERSION, ADDON_ID
+from .constants import DEFAULT_USERAGENT, CHUNK_SIZE, KODI_VERSION
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -31,8 +31,7 @@ DEFAULT_HEADERS = {
     'User-Agent': DEFAULT_USERAGENT,
 }
 
-SSL_CIPHERS = 'ECDHE-ECDSA-AES256-GCM-SHA384:TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA384:DHE-RSA-AES256-SHA256:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES256-SHA:ECDHE-RSA-AES256-SHA:DHE-RSA-AES256-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES128-SHA:DHE-RSA-AES128-SHA:AES256-GCM-SHA384:AES128-GCM-SHA256:AES256-SHA256:AES128-SHA256:AES256-SHA:AES128-SHA'
-SSL_OPTIONS = ssl.OP_NO_SSLv2|ssl.OP_NO_SSLv3|ssl.OP_NO_COMPRESSION if ADDON_ID == 'plugin.video.foxtel.go' else None
+SSL_CIPHERS = 'ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20:ECDH+AESGCM:DH+AESGCM:ECDH+AES:DH+AES:RSA+AESGCM:RSA+AES:!aNULL:!eNULL:!MD5'
 DNS_CACHE = dns.resolver.Cache()
 
 # Save pointers to original functions
@@ -46,7 +45,7 @@ def json_override(func, error_msg):
         raise SessionError(error_msg or _.JSON_ERROR)
 
 class SSLAdapter(requests.adapters.HTTPAdapter):
-    def __init__(self, ciphers, options):
+    def __init__(self, ciphers=None, options=None):
         self._ciphers = ciphers
         self._options = options
         super(SSLAdapter, self).__init__()
@@ -118,7 +117,7 @@ class DOHResolver(object):
         raise SessionError('Unable to resolve host: {} with nameservers: {}'.format(host, self.nameservers))
 
 class RawSession(requests.Session):
-    def __init__(self, verify=None, timeout=None, auto_close=True, ssl_ciphers=SSL_CIPHERS, ssl_options=SSL_OPTIONS, proxy=None):
+    def __init__(self, verify=None, timeout=None, auto_close=True, ssl_ciphers=SSL_CIPHERS, ssl_options=None, proxy=None):
         super(RawSession, self).__init__()
         self._verify = verify
         self._timeout = timeout
@@ -130,10 +129,8 @@ class RawSession(requests.Session):
         if auto_close:
             SESSIONS.append(self)
 
-        if KODI_VERSION > 18:
-            ssl_ciphers += '@SECLEVEL=1'
-
-        self.mount('https://', SSLAdapter(ciphers=ssl_ciphers, options=ssl_options))
+        self._ssl_adapter = SSLAdapter(ciphers=ssl_ciphers, options=ssl_options)
+        self.mount('https://', self._ssl_adapter)
 
     def set_dns_rewrites(self, rewrites):
         for entries in rewrites:
@@ -265,6 +262,17 @@ class RawSession(requests.Session):
 
             return addresses
 
+        def _ssl_wrap_socket_impl(*args, **kwargs):
+            ssl_obj = prev_ssl_wrap_socket_impl(*args, **kwargs)
+            log.debug('SSL Cipher: {} - {}'.format(urlparse(session_data['url']).netloc.lower(), ssl_obj.cipher()))
+            ## python 3.7 only:
+            # 'version': ssl_obj.version(),
+            # 'compression': ssl_obj.compression(),
+            # 'peercert': ssl_obj.getpeercert(),
+            # 'protocol': ssl_obj.selected_alpn_protocol(),
+            # 'shared_ciphers': [x[0] for x in ssl_obj.shared_ciphers()],
+            return ssl_obj
+
         if session_data['url'] != url:
             log.debug("URL Changed: {}".format(session_data['url']))
 
@@ -294,10 +302,12 @@ class RawSession(requests.Session):
 
         prev_getaddrinfo = socket.getaddrinfo
         prev_connection_from_pool = urllib3.PoolManager.connection_from_pool_key
+        prev_ssl_wrap_socket_impl = urllib3.util.ssl_._ssl_wrap_socket_impl
 
         # Override functions
         socket.getaddrinfo = getaddrinfo
         urllib3.PoolManager.connection_from_pool_key = connection_from_pool_key
+        urllib3.util.ssl_._ssl_wrap_socket_impl = _ssl_wrap_socket_impl
         try:
             # Do request
             result = super(RawSession, self).request(method, session_data['url'], **kwargs)
@@ -311,6 +321,7 @@ class RawSession(requests.Session):
             # Revert functions to previous
             socket.getaddrinfo = prev_getaddrinfo
             urllib3.PoolManager.connection_from_pool_key = prev_connection_from_pool
+            urllib3.util.ssl_._ssl_wrap_socket_impl = prev_ssl_wrap_socket_impl
 
         return result
 
