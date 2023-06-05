@@ -7,9 +7,7 @@ import xbmcplugin
 
 import arrow
 from slyguy import plugin, gui, userdata, signals, inputstream, settings
-from slyguy.log import log
 from slyguy.monitor import monitor
-from slyguy.exceptions import PluginError
 from slyguy.constants import ROUTE_LIVE_TAG, PLAY_FROM_TYPES, PLAY_FROM_ASK, PLAY_FROM_LIVE, PLAY_FROM_START
 
 from .api import API
@@ -90,7 +88,6 @@ def _email_password(**kwargs):
     return True
 
 def _device_code():
-    start = time.time()
     code, url = api.device_code()
     timeout = 600
 
@@ -218,11 +215,12 @@ def nav(key, title, **kwargs):
     return folder
 
 @plugin.route()
-def parse(url, title=None, **kwargs):
+@plugin.pagination()
+def parse(url, title=None, page=1, **kwargs):
     if not url.lower().startswith('http'):
-        data = api.page(url)
+        data = api.page(url, page=page)
     else:
-        data = api.url(url)
+        data = api.url(url, page=page)
 
     folder = plugin.Folder(title or data.get('title'))
 
@@ -243,7 +241,7 @@ def parse(url, title=None, **kwargs):
     items = _process_entries(data['entries'])
     folder.add_items(items)
 
-    return folder
+    return folder, data.get('next')
 
 @plugin.route()
 def featured(key, title, **kwargs):
