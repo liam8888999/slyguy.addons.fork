@@ -65,7 +65,7 @@ class InputstreamItem(object):
 
     def check(self):
         if self.checked is None:
-            self.checked = self.do_check()
+            self.checked = bool(self.do_check())
 
         return self.checked
 
@@ -351,3 +351,18 @@ def _download(url, dst_path, md5=None):
     remove_file(dst_path)
     shutil.move(tmp_path, dst_path)
     return True
+
+def ia_helper(protocol, drm=None):
+    protocol = protocol.lower().strip()
+    if protocol == 'ism':
+        return Playready().check()
+    elif drm and 'widevine' in drm.lower().strip():
+        return Widevine().check()
+    elif protocol == 'mpd':
+        return MPD().check()
+    elif protocol == 'hls':
+        return HLS(force=True).check()
+    elif protocol == 'rtmp':
+        return get_addon('inputstream.rtmp', required=True) is not None
+    else:
+        raise InputStreamError('Unknown protocol: {}'.format(protocol))

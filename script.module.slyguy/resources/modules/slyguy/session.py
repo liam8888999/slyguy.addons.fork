@@ -3,6 +3,7 @@ import socket
 import shutil
 import re
 import ssl
+import random
 from gzip import GzipFile
 
 import requests
@@ -18,7 +19,7 @@ from .smart_urls import get_dns_rewrites
 from .log import log
 from .language import _
 from .exceptions import SessionError, Error
-from .constants import DEFAULT_USERAGENT, CHUNK_SIZE, KODI_VERSION, ADDON_ID
+from .constants import DEFAULT_USERAGENT, CHUNK_SIZE, ADDON_ID
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -32,8 +33,12 @@ DEFAULT_HEADERS = {
 }
 
 SSL_CIPHERS = 'ECDHE-ECDSA-AES256-GCM-SHA384:TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA384:DHE-RSA-AES256-SHA256:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES256-SHA:ECDHE-RSA-AES256-SHA:DHE-RSA-AES256-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES128-SHA:DHE-RSA-AES128-SHA:AES256-GCM-SHA384:AES128-GCM-SHA256:AES256-SHA256:AES128-SHA256:AES256-SHA:AES128-SHA'
-SSL_OPTIONS = ssl.OP_NO_SSLv2|ssl.OP_NO_SSLv3|ssl.OP_NO_COMPRESSION if ADDON_ID == 'plugin.video.foxtel.go' else None
+SSL_OPTIONS = None
 DNS_CACHE = dns.resolver.Cache()
+
+ciphers_list = SSL_CIPHERS.split(':')
+random.shuffle(ciphers_list)
+SSL_CIPHERS = ':'.join(ciphers_list)
 
 # Save pointers to original functions
 orig_connection_from_pool_key = urllib3.PoolManager.connection_from_pool_key
@@ -131,10 +136,8 @@ class RawSession(requests.Session):
         if auto_close:
             SESSIONS.append(self)
 
-        if KODI_VERSION > 18:
-            ssl_ciphers += '@SECLEVEL=1'
-
-        self.mount('https://', SSLAdapter(ciphers=ssl_ciphers, options=ssl_options))
+        self._ssl_adapter = SSLAdapter(ciphers=ssl_ciphers, options=SSL_OPTIONS)
+        self.mount('https://', self._ssl_adapter)
 
     def set_dns_rewrites(self, rewrites):
         for entries in rewrites:
