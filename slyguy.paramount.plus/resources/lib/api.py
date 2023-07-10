@@ -165,8 +165,7 @@ class API(object):
         userdata.set('profile_img', profile['profilePicPath'])
 
     def _params(self, params=None):
-        _params = {'at': self._config.at_token}
-        #_params = {'locale': 'en-us', 'at': self._at_token(secret), 'LOCATEMEIN': 'us'}
+        _params = {'at': self._config.at_token, 'locale': self._config.locale}
         if params:
             _params.update(params)
         return _params
@@ -247,7 +246,7 @@ class API(object):
     @mem_cache.cached(60*10)
     def related_shows(self, show_id):
         self._refresh_token()
-        return self._session.get('/v2.0/androidphone/shows/{}/related/shows.json'.format(show_id), params=self._params()).json()['relatedShows']
+        return self._session.get('/v2.0/androidphone/shows/{}/related/shows.json'.format(show_id), params=self._params()).json().get('relatedShows', [])
 
     @mem_cache.cached(60*5)
     def show_menu(self, show_id):
