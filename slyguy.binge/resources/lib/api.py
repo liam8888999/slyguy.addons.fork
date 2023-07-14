@@ -158,25 +158,40 @@ class API(object):
         self._refresh_token()
         return self._auth_header
 
+    def asset(self, asset_id):
+        self._refresh_token()
+        params = {'profile': userdata.get('profile_id')}
+        return self._session.get('https://api.binge.com.au/v1/private/assets/{}'.format(asset_id), params=params, headers=self._auth_header).json()
+
+    def up_next(self, asset_id):
+        data = self.landing('next', params={'asset': asset_id})
+        for panel in data.get('panels', []):
+            if panel.get('countdown') and panel.get('contents'):
+                return panel['contents'][0]
+        return None
+
     def stream(self, asset_id):
         self._refresh_token()
 
         payload = {
-            'assetId': asset_id,
-            'canPlayHevc': settings.getBool('hevc', False),
-            'contentType': 'application/xml+dash',
-            'drm': True,
-            'forceSdQuality': False,
-            'playerName': 'exoPlayerTV',
-            'udid': UDID,
+            "assetId": asset_id,
+            "application": {"name":"binge", "appId":"binge.com.au"},
+            "device":{"id":UDID, "type":"android"},
+            "player":{"name":"exoPlayerTV"},
+            "ads":{"optOut": True},
+            "capabilities":{"codecs":["avc"]},
+            "session":{"intent":"playback"}
         }
 
-        data = self._session.post('https://play.binge.com.au/api/v1/play', json=payload, headers=self._auth_header).json()
+        if settings.getBool('hevc', False):
+            payload['capabilities']['codecs'].append('hevc')
+
+        data = self._session.post('https://play.binge.com.au/api/v3/play', json=payload, headers=self._auth_header).json()
         if ('status' in data and data['status'] != 200) or 'errors' in data:
             msg = data.get('detail') or data.get('errors', [{}])[0].get('detail')
             raise APIError(_(_.ASSET_ERROR, msg=msg))
 
-        return data['data'][0]
+        return data
 
     def logout(self):
         userdata.delete('access_token')
