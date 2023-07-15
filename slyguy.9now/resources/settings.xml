@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <settings>
-    <category label="$ADDON[script.module.slyguy 32034]">
+    <category label="$ADDON[script.module.slyguy 32139]">
         <setting label="30011" type="bool" id="flatten_single_season" default="true"/>
         <setting label="30014" type="bool" id="hide_suggested" default="true"/>
         <setting label="30012" type="enum" id="region" default="3" lvalues="30013|30016|30017|30018|30019|30020|30021|30022|30023" />
@@ -11,7 +11,6 @@
 
         <setting label="$ADDON[script.module.slyguy 32076]" type="bool" id="use_ia_hls_live" default="true"/>
         <setting label="$ADDON[script.module.slyguy 32023]" type="bool" id="use_ia_hls_vod" default="true"/>
-        <setting label="$ADDON[script.module.slyguy 32021]" type="action" action="RunPlugin(plugin://$ID/?_=_ia_install)" option="close" visible="!system.platform.android"/>
     </category>
 
     <category label="$ADDON[script.module.slyguy 32036]">
