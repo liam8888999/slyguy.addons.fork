@@ -109,10 +109,10 @@ class API(object):
             'pc': 3350,
             'deviceType': 'androidtv',
             'ozid': 'b09f7dc3-3999-47c7-a09f-8dce404c0455',
-           # 'encryptionType': 'cbcs',
-           # 'drmSystems': 'widevine',
-           # 'containerFormat': 'cmaf',
-           # 'supportedCodecs': 'avc',
+            'encryptionType': 'cenc',
+            'drmSystems': 'widevine',
+            'containerFormat': 'cmaf',
+            'supportedCodecs': 'avc',
             'sdkverification': 'true',
         }
 
@@ -129,5 +129,4 @@ class API(object):
             raise APIError(data[0]['error_code'])
 
         item = process_brightcove(data['media'])
-        item.path = item.path.replace('SYD3HC.m3u8', 'SYD3.m3u8')
         return item

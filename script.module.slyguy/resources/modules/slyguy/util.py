@@ -17,7 +17,7 @@ from contextlib import closing
 
 from kodi_six import xbmc, xbmcgui, xbmcaddon, xbmcvfs
 from six.moves import queue, range
-from six.moves.urllib.parse import urlparse, urlunparse, quote
+from six.moves.urllib.parse import urlparse, urlunparse, quote, parse_qsl
 from requests.models import PreparedRequest
 from six import PY2
 import requests
@@ -381,9 +381,9 @@ def process_brightcove(data):
         elif source.get('container') == 'MP4' and 'key_systems' not in source:
             sources.append({'source': source, 'type': 'mp4', 'order_1': 2, 'order_2': int(source.get('avg_bitrate', 0))})
 
-        # Widevine
-        elif source.get('type') == 'application/dash+xml' and 'com.widevine.alpha' in source.get('key_systems', ''):
-            sources.append({'source': source, 'type': 'widevine', 'order_1': 3, 'order_2': 0})
+        # Widevine cenc
+        elif source.get('encryption_type') == 'cenc' and 'com.widevine.alpha' in source.get('key_systems', ''):
+            sources.append({'source': source, 'type': 'widevine', 'mimetype': source['type'], 'order_1': 3, 'order_2': 0})
 
         elif source.get('type') == 'application/vnd.apple.mpegurl' and 'key_systems' not in source:
             sources.append({'source': source, 'type': 'hls', 'order_1': 1, 'order_2': 0})
@@ -410,7 +410,7 @@ def process_brightcove(data):
     elif source['type'] == 'widevine':
         return plugin.Item(
             path = source['source']['src'],
-            inputstream = inputstream.Widevine(license_key=source['source']['key_systems']['com.widevine.alpha']['license_url']),
+            inputstream = inputstream.Widevine(license_key=source['source']['key_systems']['com.widevine.alpha']['license_url'], mimetype=source['mimetype'], manifest_type='dash' if source['mimetype'] == 'application/dash+xml' else 'hls'),
             art = False,
         )
     else:
@@ -720,3 +720,18 @@ def get_url_headers(headers=None, cookies=None):
             string += u'{0}%3D{1}; '.format(key, quote(u'{}'.format(cookies[key]).encode('utf8')))
 
     return string.strip().strip('&')
+
+def get_headers_from_url(url):
+    split = url.split('|')
+    if len(split) < 2:
+        return {}
+
+    headers = {}
+    _headers = dict(parse_qsl(u'{}'.format(split[1]), keep_blank_values=True))
+    for key in _headers:
+        if _headers[key].startswith(' '):
+            _headers[key] = u'%20{}'.format(_headers[key][1:])
+
+        headers[key.lower()] = _headers[key]
+
+    return headers

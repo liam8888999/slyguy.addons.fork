@@ -11,6 +11,7 @@ from six.moves.urllib_parse import quote
 
 from slyguy import plugin, gui, settings, userdata, signals, inputstream
 from slyguy.log import log
+from slyguy.util import get_url_headers
 
 from .api import API
 from .language import _
@@ -172,12 +173,13 @@ def _bundle(folder, mode=''):
         )
 
 @plugin.route()
-def assets(title, asset_type=ASSET_BOTH, _filter=None, menu=1, **kwargs):
-    menu   = int(menu)
+def assets(title, asset_type=ASSET_BOTH, _filter=None, menu=1, showall=0, **kwargs):
+    menu = int(menu)
+    showall = int(showall)
     folder = plugin.Folder(title)
 
     if menu:
-        data = api.assets(asset_type, _filter, showall=False)
+        data = api.assets(asset_type, _filter, showall=showall)
 
         def _add_menu(menuitem):
             item = plugin.Item(
@@ -199,14 +201,19 @@ def assets(title, asset_type=ASSET_BOTH, _filter=None, menu=1, **kwargs):
 
                 folder.add_items([item])
     else:
-        data = api.assets(asset_type, _filter, showall=True)
+        data = api.assets(asset_type, _filter, showall=showall)
 
+        total_count = 0
         elements = []
         for e in data['content'].get('contentGroup', []):
             elements.extend(e.get('items', []))
+            total_count += int(e.get('totalCount', '0').split(' ')[0])
 
         items = _parse_elements(elements, from_menu=True)
         folder.add_items(items)
+
+        if not showall and len(elements) < total_count:
+            folder.add_item(label=_(_.SEE_ALL, _bold=True), path=plugin.url_for(assets, title=title, asset_type=asset_type, _filter=_filter, menu=menu, showall=1), specialsort='bottom')
 
     return folder
 
@@ -349,7 +356,7 @@ def _get_entitlements():
 def _image(id, width=400, fragment=''):
     if fragment:
         fragment = '#{}'.format(quote(fragment))
-    return IMG_URL.format(id=id, width=width, fragment=fragment)
+    return IMG_URL.format(id=id, width=width, fragment=fragment) + '|' + get_url_headers(HEADERS)
 
 @plugin.route()
 def live_tv(_filter=None, **kwargs):
