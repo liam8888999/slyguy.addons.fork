@@ -14,6 +14,9 @@ from .language import _
 from .smart_urls import get_dns_rewrites
 from .util import fix_url, set_kodi_string, hash_6, get_url_headers, get_headers_from_url
 
+if KODI_VERSION >= 20:
+    from .listitem import ListItemInfoTag
+
 def _make_heading(heading=None):
     return heading if heading else ADDON_NAME
 
@@ -264,7 +267,7 @@ class Item(object):
         if self.label:
             li.setLabel(self.label)
 
-        if not (info.get('plot') or '').strip():
+        if not (info.get('plot') or '').strip() and not info.get('mediatype') and settings.common_settings.getBool('video_view_menus', False):
             info['plot'] = '[B][/B]'
 
         if info:
@@ -283,6 +286,7 @@ class Item(object):
             aired = info.get('aired') or ''
             premiered = info.get('premiered') or ''
             date_added = info.get('dateadded') or ''
+            date = info.get('date') or ''
 
             if not aired and premiered:
                 info['aired'] = aired = premiered
@@ -299,7 +303,15 @@ class Item(object):
             if not date_added and aired:
                 info['dateadded'] = date_added = '{} 12:00:00'.format(aired)
 
-            li.setInfo('video', info)
+            if not date and aired:
+                info['date'] = aired
+
+            if KODI_VERSION >= 20:
+                ListItemInfoTag(li, 'video').set_info(info)
+                if info.get('date'):
+                    li.setDateTime(info['date'])
+            else:
+                li.setInfo('video', info)
 
         if self.specialsort:
             li.setProperty('specialsort', self.specialsort)
