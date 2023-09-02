@@ -14,7 +14,7 @@ from slyguy.exceptions import PluginError
 from slyguy.monitor import monitor
 from slyguy.drm import is_wv_secure
 from slyguy.log import log
-from slyguy.constants import MIDDLEWARE_PLUGIN, LIVE_HEAD
+from slyguy.constants import MIDDLEWARE_PLUGIN, NO_RESUME_TAG, ROUTE_RESUME_TAG
 
 from .language import _
 from .api import API
@@ -189,6 +189,16 @@ def _select_profile():
     api.set_profile(values[index])
     gui.notification(_.PROFILE_ACTIVATED, heading=userdata.get('profile_name'), icon=config.image(userdata.get('profile_img')))
 
+def _get_play_path(**kwargs):
+    profile_id = userdata.get('profile_id')
+    if profile_id:
+        kwargs['profile_id'] = profile_id
+
+    if settings.getBool('sync_playback', False):
+        kwargs[NO_RESUME_TAG] = True
+
+    return plugin.url_for(play, **kwargs)
+
 @plugin.route()
 def featured(slug=None, homegroup=None, **kwargs):
     if homegroup:
@@ -271,7 +281,7 @@ def featured(slug=None, homegroup=None, **kwargs):
                         'trailer': plugin.url_for(play, video_id=row['trailerContentId']) if row.get('trailerContentId') else None,
                     },
                     art = _movie_art(data['thumbnailSet'], row.get('movieAssets')),
-                    path = plugin.url_for(play, video_id=data['contentId']),
+                    path = _get_play_path(video_id=data['contentId']),
                     playable = True,
                 )
 
@@ -343,7 +353,7 @@ def movies(genre=None, title=None, page=1, **kwargs):
                 'trailer': plugin.url_for(play, video_id=row['movie_trailer_id']) if row.get('movie_trailer_id') else None,
             },
             art = _movie_art(movie['thumbnailSet'], row.get('movieAssets')),
-            path = plugin.url_for(play, video_id=movie['contentId']),
+            path = _get_play_path(video_id=movie['contentId']),
             playable = True,
         )
 
@@ -429,6 +439,9 @@ def show(show_id, config=None, **kwargs):
     for row in api.show_menu(show_id):
         if row.get('videoConfigUniqueName'): #and row.get('hasResultsFromVideoConfig'):
             config = api.show_config(show_id, row['videoConfigUniqueName'])
+            if not config:
+                continue
+
             if config.get('display_seasons'):
                 for row in sorted(api.seasons(show_id), key=lambda x: int(x['seasonNum'])):
                     if not row['totalCount']:
@@ -486,7 +499,7 @@ def _show_episodes(_show, section, season=None, ignore_eps=False):
                 'tvshowtitle': _show['show']['results'][0]['title'],
             },
             art = {'thumb': config.thumbnail(row['thumbnail'])},
-            path = plugin.url_for(play, video_id=row['contentId'], _is_live=is_live),
+            path = _get_play_path(video_id=row['contentId'], _is_live=is_live),
             playable = True,
         )
 
@@ -524,13 +537,20 @@ def live_tv(channel_slug=None, **kwargs):
                 start = arrow.get(row['upcomingListing'][0]['startTimestamp'])
                 plot += u'[{}] {}\n'.format(start.to('local').format('h:mma'), row['upcomingListing'][0]['title'])
 
+            label = row['channelName'].strip()
+            listing_id = None
+            if row['streamType'] == 'mpx_live' and len(row['currentListing']) > 1:
+                listing_id = listing['id']
+                label = listing['title'].strip()
+                plot = listing['description']
+
             folder.add_item(
-                label = row['channelName'].strip(),
+                label = label,
                 info = {
                     'plot': plot,
                 },
                 art = {'thumb': config.image(row['filePathLogoSelected'])},
-                path = plugin.url_for(play_channel, slug=row['slug'], listing_id=listing['id'] if (row['streamType'] == 'mpx_live' and len(row['currentListing']) > 1) else None, _is_live=True),
+                path = plugin.url_for(play_channel, slug=row['slug'], listing_id=listing_id, _is_live=True),
                 playable = True,
             )
 
@@ -609,7 +629,7 @@ def search(query, page, **kwargs):
                     'trailer': plugin.url_for(play, video_id=row['movie_trailer_id']) if row.get('movie_trailer_id') else None,
                 },
                 art = _movie_art(data['thumbnailSet'], row.get('movieAssets')),
-                path = plugin.url_for(play, video_id=data['contentId']),
+                path = _get_play_path(video_id=data['contentId']),
                 playable = True,
             ))
 
@@ -638,7 +658,7 @@ def search(query, page, **kwargs):
 #     return plugin.Item()
 
 @plugin.route()
-@plugin.plugin_middleware()
+@plugin.plugin_request()
 def mpd_request(_data, _path, **kwargs):
     root = parseString(_data)
 
@@ -667,14 +687,18 @@ def mpd_request(_data, _path, **kwargs):
 @plugin.route()
 @plugin.login_required()
 def play(video_id, **kwargs):
-    return _play(video_id)
+    return _play(video_id, **kwargs)
 
-def _play(video_id):
+def _play(video_id, **kwargs):
     data = api.play(video_id)
-
     item = plugin.Item(
         path = data['url'],
     )
+
+    if settings.getBool('sync_playback', False) and NO_RESUME_TAG in kwargs and not kwargs.get(ROUTE_RESUME_TAG):
+        item.resume_from = plugin.resume_from(api.video(video_id)['mediaTime'])
+        if item.resume_from == -1:
+            return
 
     if data['widevine']:
         item.inputstream = inputstream.Widevine(license_key=data['license_url'])
@@ -692,7 +716,20 @@ def _play(video_id):
 
     item.headers['authorization'] = 'Bearer {}'.format(data['license_token'])
 
+    if settings.getBool('sync_playback', False):
+        item.callback = {
+            'type':'interval',
+            'interval': 10,
+            'callback': plugin.url_for(callback, media_id=video_id),
+        }
+
+
     return item
+
+@plugin.route()
+@plugin.no_error_gui()
+def callback(media_id, _time, **kwargs):
+    api.update_playhead(media_id, int(_time))
 
 @plugin.route()
 @plugin.login_required()

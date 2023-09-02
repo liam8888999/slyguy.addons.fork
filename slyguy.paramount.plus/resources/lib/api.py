@@ -160,6 +160,7 @@ class API(object):
         self._save_auth(resp.cookies)
 
     def _set_profile_data(self, profile):
+        userdata.set('user_id', profile['userId'])
         userdata.set('profile_id', profile['id'])
         userdata.set('profile_name', profile['name'])
         userdata.set('profile_img', profile['profilePicPath'])
@@ -266,7 +267,11 @@ class API(object):
             'rows': 1,
             'begin': 0,
         }
-        sections = self._session.get('/v2.0/androidphone/shows/{}/videos/config/{}.json'.format(show_id, config), params=self._params(params)).json()['videoSectionMetadata']
+        data = self._session.get('/v2.0/androidphone/shows/{}/videos/config/{}.json'.format(show_id, config), params=self._params(params)).json()
+        if 'videoSectionMetadata' not in data:
+            return None
+
+        sections = data['videoSectionMetadata']
         for section in sections:
             if section['section_type'] == 'Full Episodes':
                 return section
@@ -308,6 +313,13 @@ class API(object):
         self._refresh_token()
         return self._session.get('/v3.0/androidtv/login/status.json', params=self._params()).json()
 
+    def video(self, video_id):
+        self._refresh_token()
+        params = {
+            'contentId': video_id,
+        }
+        return self._session.get('/v3.0/androidphone/video/streams.json', params=self._params(params)).json()
+
     def play(self, video_id):
         self._refresh_token()
 
@@ -329,6 +341,12 @@ class API(object):
         #     if pid_type and pid:
         #         pids.append({'pid': pid, 'type': pid_type})
 
+        params = {'contentId': video_id}
+        session = self._session.get('/v3.1/androidphone/irdeto-control/session-token.json', params=self._params(params)).json()
+        if not session.get('success', True):
+            error = session.get('Error Message') or session.get('message') or str(session)
+            raise APIError('Failed to obtain session token\n{}'.format(error))
+
         order = ['HLS_AES', 'DASH_LIVE', 'DASH_CENC_HDR10', 'DASH_TA', 'DASH_CENC', 'DASH_CENC_PRECON', 'DASH_CENC_PS4']
         order.extend(['HLS_LIVE', 'HLS_FPS_HDR', 'HLS_FPS', 'HLS_FPS_PRECON']) #APPLE SAMPLE-AES - add last
 
@@ -348,6 +366,19 @@ class API(object):
 
         url = self._config.get_link_platform_url(video_id)
         resp = self._session.get(url, params=params)
+        if not resp.ok:
+            if session.get('streamingUrl'):
+                return {
+                    'url': session['streamingUrl'],
+                    'type': 'HLS',
+                    'widevine': False,
+                    'license_url': session['url'],
+                    'license_token': session['ls_session'],
+                    'live': True,
+                }
+            else:
+                raise APIError("Unable to find playback url for {}".format(video_id))
+
         root = parseString(resp.content)
 
         videos = root.getElementsByTagName('video')
@@ -358,9 +389,6 @@ class API(object):
                 if error_msg:
                     break
             raise APIError(_(error_msg))
-
-        params = {'contentId': video_id}
-        session = self._session.get('/v3.0/androidphone/irdeto-control/session-token.json', params=self._params(params)).json()
 
         switch = root.getElementsByTagName('switch')[0]
         ref = switch.getElementsByTagName('ref')[0]
@@ -383,6 +411,19 @@ class API(object):
         }
 
         return data
+
+    def update_playhead(self, content_id, time):
+        params = {
+            'contentid': content_id,
+            'userid': userdata.get('user_id'),
+            'profileid': userdata.get('profile_id'),
+            'medtime': time or 1,
+            'premium': True,
+            'sessionid': '',
+            'platform': '',
+        }
+
+        return Session().get(self._config.playhead_url, params=self._params(params)).json().get('success')
 
     def _ip(self):
         return self._session.get(self._config.ip_url, params=self._params()).json()['ip']
@@ -448,9 +489,10 @@ class API(object):
             return None
 
     def logout(self):
-        userdata.delete('profile_img')
-        userdata.delete('profile_name')
+        userdata.delete('user_id')
         userdata.delete('profile_id')
+        userdata.delete('profile_name')
+        userdata.delete('profile_img')
         userdata.delete('auth_cookies')
         userdata.delete('device_id')
         userdata.delete('expires')
