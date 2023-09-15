@@ -290,7 +290,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self._parse_m3u8(response)
 
             elif self._session.get('type') == 'mpd' and url == manifest:
-                self._session['manifest'] = None #unset manifest url so isn't parsed again
                 self._parse_dash(response)
         except Exception as e:
             log.exception(e)
@@ -870,12 +869,11 @@ class RequestHandler(BaseHTTPRequestHandler):
         ## Convert Location
         for elem in root.getElementsByTagName('Location'):
             url = elem.firstChild.nodeValue
-
-            if url.startswith('/'):
+            if '://' not in url:
                 url = urljoin(response.url, url)
 
-            if '://' in url:
-                elem.firstChild.nodeValue = self.proxy_path + url
+            elem.firstChild.nodeValue = self.proxy_path + url
+            self._session['manifest'] = url
         ################
 
         ## Convert to proxy paths
@@ -1437,7 +1435,8 @@ class ResponseStream(object):
         else:
             while True:
                 try:
-                    chunk = self._response.raw.read(CHUNK_SIZE)
+                    # 4096 best for shoutcast streams and quick playback start
+                    chunk = self._response.raw.read(4096)
                 except:
                     chunk = None
 
