@@ -1,11 +1,5 @@
 HEADERS = {
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
-}
-
-AUTH_HEADERS = {
-    'referer': 'https://kayosports.com.au/',
-    'auth0-client': 'eyJuYW1lIjoiYXV0aDAtc3BhLWpzIiwidmVyc2lvbiI6IjEuMjAuMSJ9',
-    'accept-language': 'en-GB,en-US;q=0.9,en;q=0.8',
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
 }
 
 AUTH_URL = 'https://auth.streamotion.com.au/oauth'

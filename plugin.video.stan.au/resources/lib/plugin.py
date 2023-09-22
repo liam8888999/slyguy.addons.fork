@@ -306,8 +306,8 @@ def _process_entries(entries):
                 label = row['title'],
                 art = {'thumb': _art(row['images']), 'fanart': _art(row['images'], 'fanart')},
                 info = {
-                    'plot': row['description'],
-                    'year': row['releaseYear'],
+                    'plot': row.get('description'),
+                    'year': row.get('releaseYear'),
                     'tvshowtitle': row['title'],
                     'mediatype': 'tvshow',
                 },
@@ -337,7 +337,7 @@ def _process_entries(entries):
                 end_date = now.shift(hours=2)
 
             item.label = row['title']
-            item.info['plot'] = u'[B]{}[/B]\n\n{}'.format(start_date.to('local').format('MMM Do h:mm A'), row['description'])
+            item.info['plot'] = u'[B]{}[/B]\n\n{}'.format(start_date.to('local').format('MMM Do h:mm A'), row.get('description'))
             if now < start_date:
                 item.label += u' [B][{}][/B]'.format(start_date.humanize())
             elif now > start_date and now < end_date:
@@ -368,9 +368,9 @@ def _process_entries(entries):
             item = plugin.Item(
                 label = row['title'],
                 info = {
-                    'plot': row['description'],
-                    'year': row['releaseYear'],
-                    'duration': row['runtime'],
+                    'plot': row.get('description'),
+                    'year': row.get('releaseYear'),
+                    'duration': row.get('runtime'),
                     'mediatype': 'movie',
                 },
                 art = {'thumb': _art(row['images']), 'fanart': _art(row['images'], 'fanart')},
@@ -427,9 +427,9 @@ def episodes(url, show_title, fanart, **kwargs):
             folder.add_item(
                 label = row['title'],
                 info = {
-                    'plot': row['description'],
-                    'year': row['releaseYear'],
-                    'duration': row['runtime'],
+                    'plot': row.get('description'),
+                    'year': row.get('releaseYear'),
+                    'duration': row.get('runtime'),
                     'season': row['tvSeasonNumber'] if not extras else None,
                     'episode': row['tvSeasonEpisodeNumber'] if not extras else None,
                     'mediatype': 'episode',
