@@ -257,7 +257,7 @@ class Item(object):
     def is_folder(self, value):
         self._is_folder = value
 
-    def get_li(self):
+    def get_li(self, playing=False):
         proxy_path = settings.common_settings.get('_proxy_path')
 
         if KODI_VERSION < 18:
@@ -311,6 +311,10 @@ class Item(object):
                 if info.get('date'):
                     try: info['date'] = '{}.{}.{}'.format(info['date'][8:10], info['date'][5:7], info['date'][0:4])
                     except: pass
+
+                if info.get('cast'):
+                    try: info['cast'] = [(member['name'], member['role']) for member in info['cast']]
+                    except: pass
                 li.setInfo('video', info)
 
         if self.specialsort:
@@ -339,7 +343,7 @@ class Item(object):
 
             li.setArt(art)
 
-        if self.playable:
+        if self.playable and not playing:
             li.setProperty('IsPlayable', 'true')
             if self.path:
                 self.path = add_url_args(self.path, _play=1)
@@ -369,12 +373,21 @@ class Item(object):
         if not mimetype and self.inputstream:
             mimetype = self.inputstream.mimetype
 
+        def is_http(url):
+            return url.lower().startswith('http://') or url.lower().startswith('https://')
+
         def get_url(url):
             _url = url.lower()
 
-            if _url.startswith('plugin://') or (_url.startswith('http') and self.use_proxy and not _url.startswith(proxy_path)) and settings.common_settings.getBool('proxy_enabled', True):
+            if os.path.exists(xbmc.translatePath(url)) or _url.startswith('special://') or _url.startswith('plugin://') or (is_http(_url) and self.use_proxy and not _url.startswith(proxy_path)) and settings.common_settings.getBool('proxy_enabled', True):
                 url = u'{}{}'.format(proxy_path, url)
 
+            return url
+
+        def redirect_url(url):
+            parse = urlparse(url.lower())
+            if parse.netloc in REDIRECT_HOSTS and is_http(url):
+                url = Session().head(url).headers.get('location') or url
             return url
 
         license_url = None
@@ -418,7 +431,7 @@ class Item(object):
                 license_url = self.inputstream.license_key
                 license_headers = get_url_headers(self.inputstream.license_headers) if self.inputstream.license_headers else headers
                 li.setProperty('{}.license_key'.format(self.inputstream.addon_id), u'{url}|Content-Type={content_type}{headers}|{challenge}|{response}'.format(
-                    url = get_url(self.inputstream.license_key),
+                    url = get_url(redirect_url(fix_url(self.inputstream.license_key))),
                     content_type = self.inputstream.content_type,
                     headers = '&' + license_headers if license_headers else '',
                     challenge = self.inputstream.challenge,
@@ -462,121 +475,119 @@ class Item(object):
 
             return u'{}{}'.format(proxy_path, proxy_url)
 
-        if self.path and (self.path.lower().startswith('http://') or self.path.lower().startswith('https://')):
-            parse = urlparse(self.path.lower())
-            if parse.netloc in REDIRECT_HOSTS:
-                self.path = Session().head(self.path).headers.get('location') or self.path
-                parse = urlparse(self.path.lower())
+        if self.path and playing:
+            self.path = redirect_url(fix_url(self.path))
+            final_path = get_url(self.path)
+            if is_http(final_path):
+                if not mimetype:
+                    parse = urlparse(self.path.lower())
+                    if parse.path.endswith('.m3u') or parse.path.endswith('.m3u8'):
+                        mimetype = 'application/vnd.apple.mpegurl'
+                    elif parse.path.endswith('.mpd'):
+                        mimetype = 'application/dash+xml'
+                    elif parse.path.endswith('.ism'):
+                        mimetype = 'application/vnd.ms-sstr+xml'
 
-            if not mimetype:
-                if parse.path.endswith('.m3u') or parse.path.endswith('.m3u8'):
-                    mimetype = 'application/vnd.apple.mpegurl'
-                elif parse.path.endswith('.mpd'):
-                    mimetype = 'application/dash+xml'
-                elif parse.path.endswith('.ism'):
-                    mimetype = 'application/vnd.ms-sstr+xml'
+                proxy_data = {
+                    'manifest': self.path,
+                    'slug': '{}-{}'.format(ADDON_ID, sys.argv[2]),
+                    'license_url': license_url,
+                    'session_id': hash_6(time.time()),
+                    'audio_whitelist': settings.get('audio_whitelist', ''),
+                    'subs_whitelist':  settings.get('subs_whitelist', ''),
+                    'audio_description': settings.getBool('audio_description', True),
+                    'subs_forced': settings.getBool('subs_forced', True),
+                    'subs_non_forced': settings.getBool('subs_non_forced', True),
+                    'remove_framerate': False,
+                    'subtitles': [],
+                    'path_subs': {},
+                    'addon_id': ADDON_ID,
+                    'quality': QUALITY_DISABLED,
+                    'middleware': {},
+                    'type': None,
+                    'skip_next_channel': settings.common_settings.getBool('skip_next_channel', False),
+                    'h265': settings.common_settings.getBool('h265', False),
+                    'hdr10': settings.common_settings.getBool('hdr10', False),
+                    'dolby_vision': settings.common_settings.getBool('dolby_vision', False),
+                    'dolby_atmos': settings.common_settings.getBool('dolby_atmos', False),
+                    'ac3': settings.common_settings.getBool('ac3', False),
+                    'ec3': settings.common_settings.getBool('ec3', False),
+                    'verify': settings.common_settings.getBool('verify_ssl', True),
+                    'timeout': settings.common_settings.getInt('http_timeout', 30),
+                    'dns_rewrites': get_dns_rewrites(self.dns_rewrites),
+                    'proxy_server': settings.get('proxy_server') or settings.common_settings.get('proxy_server'),
+                    'max_width': settings.common_settings.getInt('max_width', 0),
+                    'max_height': settings.common_settings.getInt('max_width', 0),
+                    'max_channels': settings.common_settings.getInt('max_channels', 0),
+                }
 
-            self.path = fix_url(self.path)
+                #######################################
+                ## keep old setting values working until new settings system implemented
+                legacy_map = {
+                    'h265': ['hevc','enable_h265',],
+                    'hdr10': ['enable_hdr',],
+                    'dolby_vision': [],
+                    'dolby_atmos': ['atmos_enabled',],
+                    'ac3': ['ac3_enabled',],
+                    'ec3': ['ec3_enabled',],
+                }
 
-            proxy_data = {
-                'manifest': self.path,
-                'slug': '{}-{}'.format(ADDON_ID, sys.argv[2]),
-                'license_url': license_url,
-                'session_id': hash_6(time.time()),
-                'audio_whitelist': settings.get('audio_whitelist', ''),
-                'subs_whitelist':  settings.get('subs_whitelist', ''),
-                'audio_description': settings.getBool('audio_description', True),
-                'subs_forced': settings.getBool('subs_forced', True),
-                'subs_non_forced': settings.getBool('subs_non_forced', True),
-                'remove_framerate': False,
-                'subtitles': [],
-                'path_subs': {},
-                'addon_id': ADDON_ID,
-                'quality': QUALITY_DISABLED,
-                'middleware': {},
-                'type': None,
-                'skip_next_channel': settings.common_settings.getBool('skip_next_channel', False),
-                'h265': settings.common_settings.getBool('h265', False),
-                'hdr10': settings.common_settings.getBool('hdr10', False),
-                'dolby_vision': settings.common_settings.getBool('dolby_vision', False),
-                'dolby_atmos': settings.common_settings.getBool('dolby_atmos', False),
-                'ac3': settings.common_settings.getBool('ac3', False),
-                'ec3': settings.common_settings.getBool('ec3', False),
-                'verify': settings.common_settings.getBool('verify_ssl', True),
-                'timeout': settings.common_settings.getInt('http_timeout', 30),
-                'dns_rewrites': get_dns_rewrites(self.dns_rewrites),
-                'proxy_server': settings.get('proxy_server') or settings.common_settings.get('proxy_server'),
-                'max_width': settings.common_settings.getInt('max_width', 0),
-                'max_height': settings.common_settings.getInt('max_width', 0),
-                'max_channels': settings.common_settings.getInt('max_channels', 0),
-            }
+                for key in legacy_map:
+                    #add ourself so addon can override common
+                    legacy_map[key].append(key)
+                    for old_key in legacy_map[key]:
+                        val = settings.getBool(old_key, None)
+                        if val is not None:
+                            proxy_data[key] = val
+                            break
+                #########################################
 
-            #######################################
-            ## keep old setting values working until new settings system implemented
-            legacy_map = {
-                'h265': ['hevc','enable_h265',],
-                'hdr10': ['enable_hdr',],
-                'dolby_vision': [],
-                'dolby_atmos': ['atmos_enabled',],
-                'ac3': ['ac3_enabled',],
-                'ec3': ['ec3_enabled',],
-            }
+                if mimetype == 'application/vnd.apple.mpegurl':
+                    proxy_data['type'] = 'm3u8'
+                elif mimetype == 'application/dash+xml':
+                    proxy_data['type'] = 'mpd'
 
-            for key in legacy_map:
-                #add ourself so addon can override common
-                legacy_map[key].append(key)
-                for old_key in legacy_map[key]:
-                    val = settings.getBool(old_key, None)
-                    if val is not None:
-                        proxy_data[key] = val
-                        break
-            #########################################
+                if settings.common_settings.getBool('ignore_display_resolution', False) is False:
+                    screen_width = int(xbmc.getInfoLabel('System.ScreenWidth') or 0)
+                    screen_height = int(xbmc.getInfoLabel('System.ScreenHeight') or 0)
+                    if screen_width:
+                        if not proxy_data['max_width']:
+                            proxy_data['max_width'] = screen_width
+                        else:
+                            proxy_data['max_width'] = min(screen_width, proxy_data['max_width'])
+                    if screen_height:
+                        if not proxy_data['max_height']:
+                            proxy_data['max_height'] = screen_height
+                        else:
+                            proxy_data['max_height'] = min(screen_height, proxy_data['max_height'])
 
-            if mimetype == 'application/vnd.apple.mpegurl':
-                proxy_data['type'] = 'm3u8'
-            elif mimetype == 'application/dash+xml':
-                proxy_data['type'] = 'mpd'
+                proxy_data.update(self.proxy_data)
 
-            if settings.common_settings.getBool('ignore_display_resolution', False) is False:
-                screen_width = int(xbmc.getInfoLabel('System.ScreenWidth') or 0)
-                screen_height = int(xbmc.getInfoLabel('System.ScreenHeight') or 0)
-                if screen_width:
-                    if not proxy_data['max_width']:
-                        proxy_data['max_width'] = screen_width
-                    else:
-                        proxy_data['max_width'] = min(screen_width, proxy_data['max_width'])
-                if screen_height:
-                    if not proxy_data['max_height']:
-                        proxy_data['max_height'] = screen_height
-                    else:
-                        proxy_data['max_height'] = min(screen_height, proxy_data['max_height'])
+                for key in ['default_language', 'default_subtitle']:
+                    value = settings.get(key, '')
+                    if value:
+                        proxy_data[key] = value
 
-            proxy_data.update(self.proxy_data)
+                if self.subtitles:
+                    subs = []
+                    for sub in self.subtitles:
+                        if type(sub) == str:
+                            sub = make_sub(sub)
+                        elif type(sub) == list:
+                            sub = make_sub(*sub)
+                        else:
+                            sub = make_sub(**sub)
+                        if sub:
+                            subs.append(sub)
 
-            for key in ['default_language', 'default_subtitle']:
-                value = settings.get(key, '')
-                if value:
-                    proxy_data[key] = value
+                    li.setSubtitles(list(subs))
 
-            if self.subtitles:
-                subs = []
-                for sub in self.subtitles:
-                    if type(sub) == str:
-                        sub = make_sub(sub)
-                    elif type(sub) == list:
-                        sub = make_sub(*sub)
-                    else:
-                        sub = make_sub(**sub)
-                    if sub:
-                        subs.append(sub)
+                set_kodi_string('_slyguy_proxy_data', json.dumps(proxy_data))
 
-                li.setSubtitles(list(subs))
+                if headers and '|' not in final_path:
+                    final_path = u'{}|{}'.format(final_path, headers)
 
-            set_kodi_string('_slyguy_proxy_data', json.dumps(proxy_data))
-
-            self.path = get_url(self.path)
-            if headers and '|' not in self.path:
-                self.path = u'{}|{}'.format(self.path, headers)
+            self.path = final_path
 
         if mimetype:
             li.setMimeType(mimetype)

@@ -391,7 +391,6 @@ class RequestHandler(BaseHTTPRequestHandler):
         quality_compare = cmp_to_key(compare)
         streams = sorted(qualities, key=quality_compare, reverse=True)
 
-
         ok_streams = [x for x in streams if x['compatible'] and x['res_ok']]
         not_compatible = [x for x in streams if not x['compatible']]
         not_res_ok = [x for x in streams if not x['res_ok'] and x not in not_compatible]
@@ -1275,15 +1274,19 @@ class RequestHandler(BaseHTTPRequestHandler):
             response = Response()
             response.headers = {}
             response.stream = ResponseStream(response)
+            real_path = xbmc.translatePath(url)
 
-            if os.path.exists(url):
+            if os.path.exists(real_path):
+                log.debug('Reading response from local path: {}'.format(real_path))
                 response.status_code = 200
-                with open(url, 'rb') as f:
+                with open(real_path, 'rb') as f:
                     response.stream.content = f.read()
-                if not ADDON_DEV: remove_file(url)
+
+                if not ADDON_DEV:
+                    remove_file(real_path)
             else:
                 response.status_code = 500
-                response.stream.content = "File not found: {}".format(url).encode('utf-8')
+                response.stream.content = "File not found: {}".format(real_path).encode('utf-8')
 
             return response
 
@@ -1394,18 +1397,19 @@ class RequestHandler(BaseHTTPRequestHandler):
                     f.write(license_data)
 
             if response.ok and license_data:
+                log.info('WV License response OK and returned data')
                 self._session['license_init'] = True
                 break
 
-            time.sleep(0.5)
-        else:
-            log.error(license_data)
             if not license_data:
                 license_data = b'None'
 
+            log.error('WV License attempt: {}/3 failed: {}'.format(i+1, license_data.decode()))
+            time.sleep(0.5)
+        else:
             # only show error on initial license fail
             if not self._session.get('license_init'):
-                gui.text(_(_.CHECK_WV_CDM, error=license_data.decode('utf8')), heading=_.WV_FAILED)
+                gui.notification(_.PLAYBACK_FAILED_CHECK_LOG, heading=_.WV_FAILED, icon=xbmc.getInfoLabel('Player.Icon'))
 
         self._output_response(response)
 
