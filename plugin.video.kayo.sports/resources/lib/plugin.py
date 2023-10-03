@@ -17,6 +17,7 @@ from slyguy.constants import PLAY_FROM_TYPES, PLAY_FROM_ASK, PLAY_FROM_LIVE, PLA
 from .api import API
 from .language import _
 from .constants import *
+from streamotion.constants import *
 
 #Fix LOGIN
 #run string through https://www.freeformatter.com/xml-escape.html#ad-output and press unescape before pasting here
@@ -456,9 +457,11 @@ def _parse_video(data):
 
 @plugin.route()
 @plugin.plugin_request()
-def license_request(**kwargs):
-    url, headers = api.license_request()
-    return {'url': url, 'headers': headers}
+def license_request(_path, _data, **kwargs):
+    data = api.license_request(_data)
+    with open(_path, 'wb') as f:
+        f.write(data)
+    return {'url': _path}
 
 @plugin.route()
 @plugin.login_required()

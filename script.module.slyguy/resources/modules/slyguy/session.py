@@ -322,9 +322,9 @@ class RawSession(requests.Session):
         return result
 
 class Session(RawSession):
-    def __init__(self, headers=None, cookies_key=None, base_url='{}', timeout=None, attempts=None, verify=None, dns_rewrites=None, auto_close=True, return_json=False):
+    def __init__(self, headers=None, cookies_key=None, base_url='{}', timeout=None, attempts=None, verify=None, dns_rewrites=None, auto_close=True, return_json=False, **kwargs):
         super(Session, self).__init__(verify=settings.common_settings.getBool('verify_ssl', True) if verify is None else verify,
-            timeout=settings.common_settings.getInt('http_timeout', 30) if timeout is None else timeout, auto_close=auto_close)
+            timeout=settings.common_settings.getInt('http_timeout', 30) if timeout is None else timeout, auto_close=auto_close, **kwargs)
 
         self._headers = headers or {}
         self._cookies_key = cookies_key
@@ -337,7 +337,7 @@ class Session(RawSession):
         self.set_dns_rewrites(get_dns_rewrites() if dns_rewrites is None else dns_rewrites)
         self.set_proxy(settings.get('proxy_server') or settings.common_settings.get('proxy_server'))
 
-        self.headers = DEFAULT_HEADERS
+        self.headers.update(DEFAULT_HEADERS)
         self.headers.update(self._headers)
 
         if self._cookies_key:

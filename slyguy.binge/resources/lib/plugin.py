@@ -18,6 +18,7 @@ from slyguy.constants import ROUTE_LIVE_TAG, PLAY_FROM_TYPES, PLAY_FROM_ASK, PLA
 from .api import API
 from .language import _
 from .constants import *
+from streamotion.constants import *
 
 #Fix LOGIN
 #run string through https://www.freeformatter.com/xml-escape.html#ad-output and press unescape before pasting here
@@ -549,9 +550,11 @@ def _set_profile(profile, notify=True):
 
 @plugin.route()
 @plugin.plugin_request()
-def license_request(license_url, **kwargs):
-    headers = api.license_headers()
-    return {'url': license_url, 'headers': headers}
+def license_request(_path, _data, **kwargs):
+    data = api.license_request(_data)
+    with open(_path, 'wb') as f:
+        f.write(data)
+    return {'url': _path}
 
 @plugin.route()
 @plugin.plugin_request()
