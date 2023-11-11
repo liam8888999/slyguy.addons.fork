@@ -40,13 +40,14 @@ CODECS = [
     ['avc', H264],
     ['hvc', H265],
     ['hev', H265],
-    ['vp9', VP9],
-    ['vp9.2', 'VP9 HDR'],
-    ['av01', 'AV1'],
-    ['av1', 'AV1'],
+    ['vp0?9', VP9],
+    ['av0?1', 'AV1'],
     ['hdr', HDR],
     ['dvh', DOLBY_VISION],
+    ['vp0?9\.0?2', 'VP9 HDR'],
+    ['av0?1.*09\.16\.09\.0', 'AV1 HDR'],
 ]
+CODECS = [[re.compile(x[0], re.IGNORECASE), x[1]] for x in CODECS]
 
 ATTRIBUTELISTPATTERN = re.compile(r'''((?:[^,"']|"[^"]*"|'[^']*')+)''')
 
@@ -111,9 +112,8 @@ def codec_rank(_codecs):
     highest = -1
 
     for codec in _codecs:
-        for _codec in CODECS:
-            if codec.lower().startswith(_codec[0].lower()):
-                rank = CODECS.index(_codec)
+        for rank, _codec in enumerate(CODECS):
+            if _codec[0].search(codec):
                 if not highest or rank > highest:
                     highest = rank
 
@@ -528,6 +528,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         audio_description = self._session.get('audio_description', True)
         remove_framerate = self._session.get('remove_framerate', False)
         h265_enabled = self._session.get('h265', False)
+        vp9_enabled = self._session.get('vp9', False)
+        av1_enabled = self._session.get('av1', False)
         hdr_enabled = self._session.get('hdr10', False)
         dolby_vision_enabled = self._session.get('dolby_vision', False)
         atmos_enabled = self._session.get('dolby_atmos', False)
@@ -657,20 +659,28 @@ class RequestHandler(BaseHTTPRequestHandler):
                         if is_hdr:
                             codecs.append('hdr')
 
+                        index = codec_rank(codecs)
+                        codec_string = CODECS[index][1] if index >= 0 else ''
+                        if 'hdr' in codec_string.lower():
+                            codecs.append('hdr')
+
                         stream_data = {'bandwidth': bandwidth, 'width': int(attribs.get('width','0')), 'height': int(attribs.get('height','0')), 'frame_rate': frame_rate, 'codecs': codecs, 'elem': stream, 'res_ok': True, 'compatible': True}
                         if stream_data['width'] > max_width or stream_data['height'] > max_height:
                             stream_data['res_ok'] = False
 
-                        index = codec_rank(stream_data['codecs'])
-                        codec_string = CODECS[index][1] if index >= 0 else ''
-
-                        if not dolby_vision_enabled and codec_string == DOLBY_VISION:
+                        if not dolby_vision_enabled and codec_string.lower().endswith('dolby vision'):
                             stream_data['compatible'] = False
 
-                        if not hdr_enabled and codec_string == HDR:
+                        if not hdr_enabled and codec_string.lower().endswith('hdr'):
                             stream_data['compatible'] = False
 
-                        if not h265_enabled and codec_string == H265:
+                        if not h265_enabled and codec_string.lower().startswith('h.265'):
+                            stream_data['compatible'] = False
+
+                        if not av1_enabled and codec_string.lower().startswith('av1'):
+                            stream_data['compatible'] = False
+
+                        if not vp9_enabled and codec_string.lower().startswith('vp9'):
                             stream_data['compatible'] = False
 
                         stream_data['codec'] = codec_string
