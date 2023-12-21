@@ -578,7 +578,7 @@ class Item(gui.Item):
         #     url = url_for(ROUTE_CLEAR_CACHE, key=self.cache_key)
         #     self.context.append((_.PLUGIN_CONTEXT_CLEAR_CACHE, 'RunPlugin({})'.format(url)))
 
-        if settings.getBool('bookmarks') and self.bookmark:
+        if settings.getBool('bookmarks', True) and self.bookmark:
             url = url_for(ROUTE_ADD_BOOKMARK, path=self.path, label=self.label, thumb=self.art.get('thumb'), folder=int(self.is_folder), playable=int(self.playable))
             self.context.append((_.ADD_BOOKMARK, 'RunPlugin({})'.format(url)))
 
@@ -637,7 +637,7 @@ class Item(gui.Item):
 
 #Plugin.Folder()
 class Folder(object):
-    def __init__(self, title=None, items=None, content='AUTO', updateListing=False, cacheToDisc=True, sort_methods=None, thumb=None, fanart=None, no_items_label=_.NO_ITEMS, no_items_method='notification', show_news=True):
+    def __init__(self, title=None, items=None, content='AUTO', updateListing=False, cacheToDisc=True, sort_methods=None, thumb=None, fanart=None, art=None, no_items_label=_.NO_ITEMS, no_items_method='notification', show_news=True):
         self.title = title
         self.items = items or []
         self.content = content
@@ -646,6 +646,7 @@ class Folder(object):
         self.sort_methods = sort_methods
         self.thumb = thumb or default_thumb
         self.fanart = fanart or default_fanart
+        self.art = art or {}
         self.no_items_label = no_items_label
         self.no_items_method = no_items_method
         self.show_news = show_news
@@ -678,6 +679,10 @@ class Folder(object):
         ep_sort = True
         last_show_name = ''
         for item in items:
+            for key in self.art:
+                if self.art[key] and not item.art.get(key):
+                    item.art[key] = self.art[key]
+
             if self.thumb and not item.art.get('thumb'):
                 item.art['thumb'] = self.thumb
 
@@ -849,7 +854,7 @@ def process_news():
             log.debug('news only for users with add-on: {} '.format(news['requires']))
             return
 
-        if news['type'] == 'message':
+        if news['type'] in ('message', 'donate'):
             gui.ok(news['message'], news.get('heading', _.NEWS_HEADING))
 
         elif news['type'] == 'addon_release':

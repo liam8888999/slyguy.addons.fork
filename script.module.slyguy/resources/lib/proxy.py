@@ -651,9 +651,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
                         codecs = [x for x in attribs.get('codecs', '').split(',') if x]
 
-                        # disney+ uses hvc1.2 for non-hdr in HLS. HBO Max uses it for HDR
-                        # TODO: move this into HBO manifest proxy
-                        if any([x.lower().startswith(('hvc1.2', 'hev1.2')) for x in codecs]):
+                        if attribs.get('hdr') == 'true':
                             is_hdr = True
 
                         if is_hdr:
