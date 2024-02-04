@@ -7,6 +7,8 @@ from .log import log
 from .mem_cache import cached
 from .constants import ADDON_ID, COMMON_ADDON_ID
 
+
+@cached(expires=60*5)
 def get_dns_rewrites(dns_rewrites=None, addon_id=ADDON_ID):
     rewrites = _load_rewrites(addon_id)
 

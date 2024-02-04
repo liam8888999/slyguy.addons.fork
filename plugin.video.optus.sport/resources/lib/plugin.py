@@ -9,6 +9,7 @@ import xbmcplugin
 
 import arrow
 from kodi_six import xbmc
+from bs4 import BeautifulSoup
 
 from slyguy import plugin, gui, settings, userdata, signals, inputstream
 from slyguy.constants import PLAY_FROM_TYPES, PLAY_FROM_ASK, PLAY_FROM_LIVE, PLAY_FROM_START, MIDDLEWARE_PLUGIN
@@ -74,6 +75,26 @@ def page(id, title, **kwargs):
 
     return folder
 
+def _html_to_text(html):
+    soup = BeautifulSoup(html, 'html.parser')
+
+    # Remove <a> tags containing "join now"
+    for a_tag in soup.find_all('a'):
+        if '>>' in a_tag.get_text().lower():
+            a_tag.extract()
+    text = '\n\n'.join(soup.stripped_strings)
+    return text
+
+@plugin.route()
+def article(asset, **kwargs):
+    asset = api.asset(asset)
+
+    description = ''
+    for row in sorted(asset['contents'], key=lambda x: x['position']):
+        if row['type'] == 'RICHTEXT':
+            description += row['value']
+    gui.text(_html_to_text(description), heading=asset['title'])
+
 @plugin.route()
 def editorial(id, title, **kwargs):
     folder = plugin.Folder(title)
@@ -85,15 +106,19 @@ def editorial(id, title, **kwargs):
         is_live = row.get('isLive', False)
         is_linear = row.get('type') == 'linear-channel'
 
+        path = plugin.url_for(play, asset=row['id'], _is_live=is_live)
+        if row['type'] == 'article':
+            path = plugin.url_for(article, asset=row['id'])
+
         item = plugin.Item(
             label = row['title'],
-            info  = {
+            info = {
                 'plot': row.get('description'),
                 'duration': row.get('duration', 0),
             },
-            art   = {'thumb': row.get('imageUrl') or DEFAULT_IMG},
-            path  = plugin.url_for(play, asset=row['id'], _is_live=is_live),
-            playable = True,
+            art = {'thumb': row.get('imageUrl') or DEFAULT_IMG},
+            path = path,
+            playable = row['type'] != 'article',
             is_folder = False,
         )
 
