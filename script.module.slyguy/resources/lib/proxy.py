@@ -20,7 +20,7 @@ from pycaption import detect_format, WebVTTWriter
 from slyguy import settings, gui
 from slyguy.log import log
 from slyguy.constants import *
-from slyguy.util import check_port, remove_file, get_kodi_string, set_kodi_string, fix_url, run_plugin, lang_allowed, fix_language, replace_kids
+from slyguy.util import check_port, remove_file, get_kodi_string, set_kodi_string, fix_url, run_plugin, lang_allowed, fix_language
 from slyguy.exceptions import Exit
 from slyguy.session import RawSession
 from slyguy.router import add_url_args
@@ -952,22 +952,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                 adap_set.parentNode.removeChild(adap_set)
         #################
 
-        ## Fix of cenc pssh to only contain kids still present
-        kids = []
-        for elem in root.getElementsByTagName('ContentProtection'):
-            kids.append(elem.getAttribute('cenc:default_KID'))
-
-        if kids:
-            for elem in root.getElementsByTagName('ContentProtection'):
-                if elem.getAttribute('schemeIdUri') == 'urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed':
-                    for elem2 in elem.getElementsByTagName('cenc:pssh'):
-                        current_cenc = elem2.firstChild.nodeValue
-                        new_cenc = replace_kids(current_cenc, kids, version0=True)
-                        if current_cenc != new_cenc:
-                            elem2.firstChild.nodeValue = new_cenc
-                            log.debug('Dash Fix: cenc:pssh {} -> {}'.format(current_cenc, new_cenc))
-        ################################################
-
         if ADDON_DEV:
             mpd = root.toprettyxml(encoding='utf-8')
             mpd = b"\n".join([ll.rstrip() for ll in mpd.splitlines() if ll.strip()])
@@ -1420,12 +1404,19 @@ class RequestHandler(BaseHTTPRequestHandler):
             if not license_data:
                 license_data = b'None'
 
-            log.error('WV License attempt: {}/3 failed: {}'.format(i+1, license_data.decode()))
+            try:
+                license_data = license_data.decode()
+            except:
+                license_data = '...'
+
+            log.error('WV License attempt: {}/3 failed: {}'.format(i+1, license_data))
             time.sleep(0.5)
         else:
             # only show error on initial license fail
             if not self._session.get('license_init'):
                 gui.notification(_.PLAYBACK_FAILED_CHECK_LOG, heading=_.WV_FAILED, icon=xbmc.getInfoLabel('Player.Icon'))
+                settings.common_settings.remove('_wv_last_check')
+                settings.common_settings.remove('_wv_latest_hash')
 
         self._output_response(response)
 
@@ -1500,12 +1491,26 @@ class Proxy(object):
         if self.started:
             return
 
-        self._server = ThreadedHTTPServer((PROXY_HOST, PROXY_PORT), RequestHandler)
+        target_port = settings.getInt('_proxy_port') or DEFAULT_PORT
+        port = check_port(target_port)
+        if not port:
+            port = check_port()
+            if not port:
+                log.error('Unable to find port to start proxy! Some addon features will not work')
+                return
+
+            log.warning('Port {} not available. Switched to port {}'.format(target_port, port))
+            settings.setInt('_proxy_port', port)
+
+        self._server = ThreadedHTTPServer((HOST, port), RequestHandler)
         self._server.allow_reuse_address = True
         self._httpd_thread = threading.Thread(target=self._server.serve_forever)
         self._httpd_thread.start()
         self.started = True
-        log.info("Proxy Started: {}".format(PROXY_PATH))
+
+        proxy_path = 'http://{}:{}/'.format(HOST, port)
+        settings.set('_proxy_path', proxy_path)
+        log.info("Proxy Started: {}".format(proxy_path))
 
     def stop(self):
         if not self.started:
@@ -1523,4 +1528,5 @@ class Proxy(object):
             log.error('Failed to save proxy session')
             log.exception(e)
 
+        settings.set('_proxy_path', '')
         log.debug("Proxy: Stopped")
