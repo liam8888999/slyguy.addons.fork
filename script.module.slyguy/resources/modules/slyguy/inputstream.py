@@ -3,7 +3,7 @@ import time
 import struct
 import json
 import shutil
-from distutils.version import LooseVersion
+from looseversion import LooseVersion
 
 from kodi_six import xbmc
 
@@ -233,6 +233,9 @@ def install_widevine(reinstall=False):
 
         elif system == 'TVOS':
             raise InputStreamError(_.IA_TVOS_ERROR)
+
+        elif system == 'WebOS':
+            raise InputStreamError(_.IA_WEBOS_ERROR)
 
         elif arch == 'armv6':
             raise InputStreamError(_.IA_ARMV6_ERROR)

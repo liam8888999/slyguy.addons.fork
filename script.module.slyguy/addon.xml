@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="script.module.slyguy" name="SlyGuy Common" provider-name="SlyGuy" version="0.78.1">
+<addon id="script.module.slyguy" name="SlyGuy Common" provider-name="SlyGuy" version="0.80.1">
   <requires>
-    <import addon="slyguy.dependencies" version="0.0.8"/>
+    <import addon="slyguy.dependencies" version="0.0.18"/>
   </requires>
   <extension point="xbmc.python.script" library="script.py">
     <provides>executable</provides>
@@ -15,7 +15,7 @@
     <license></license>
     <language></language>
     <website></website>
-    <news></news>
+    <news>Update PL language. Thanks @hevet</news>
     <assets>
       <icon>icon.png</icon>
       <fanart>fanart.jpg</fanart>

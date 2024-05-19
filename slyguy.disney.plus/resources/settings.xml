@@ -7,7 +7,6 @@
         <setting label="30020" type="bool" id="skip_credits" default="true"/>
         <setting label="30047" type="bool" id="sync_watchlist" default="false"/>
         <setting label="30016" type="bool" id="sync_playback" default="false"/>
-        <setting label="30033" type="text" id="app_language" default=""/>
         <setting label="$ADDON[script.module.slyguy 32143]" id="pagination_multiplier" type="slider" default="10" range="1,1,10" option="int"/>
         <setting label="$ADDON[script.module.slyguy 32104]" type="bool" id="kid_lockdown" default="false"/>
         <setting label="$ADDON[script.module.slyguy 32111]" id="bookmarks" type="bool" default="false"/>
@@ -27,6 +26,7 @@
 
         <setting label="30023" id="default_ratio" type="enum" default="1" lvalues="32055|30009|21377"/>
         <setting label="30052" type="bool" id="dolby_atmos" default="false"/>
+        <setting label="30033" type="bool" id="dtsx" default="false" visible="false"/>
         <setting label="30019" type="bool" id="hevc" default="false"/>
         <setting label="30018" type="bool" id="hdr10" default="true" visible="Integer.IsEqual(Window(10000).Property(wv_level),1)"/>
         <setting label="30015" type="bool" id="dolby_vision" default="false" visible="Integer.IsEqual(Window(10000).Property(wv_level),1)"/>

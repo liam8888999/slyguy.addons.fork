@@ -146,7 +146,7 @@ msgid "Check {email} for 6-digit code and enter it below\n"
 msgstr ""
 
 msgctxt "#30033"
-msgid "App Language (empty = profile language)"
+msgid "DTS-X (IMAX Enhanced)"
 msgstr ""
 
 msgctxt "#30042"

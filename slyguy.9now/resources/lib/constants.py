@@ -3,7 +3,7 @@ HEADERS = {
     'X-Forwarded-For': '52.62.247.239',
 }
 
-LIVESTREAM_URL = 'https://api.9now.com.au/livestreams'
+LIVESTREAM_URL = 'https://api.9now.com.au/ctv/livestreams'
 API_URL = 'https://tv-api.9now.com.au/v2/pages{}'
 EPG_URL = 'https://i.mjh.nz/au/all/epg.xml.gz'
 
@@ -19,5 +19,8 @@ ACT = 'act'
 NT = 'nt'
 WA = 'wa'
 TAS = 'tas'
+GCQ = 'gold-coast'
+NLM = 'lismore' # Northern Rivers
+NEW = 'newcastle'
 
-REGIONS = [NSW, VIC, QLD, SA, ACT, NT, WA, TAS]
+REGIONS = [NSW, VIC, QLD, SA, ACT, NT, WA, TAS, GCQ, NLM, NEW]

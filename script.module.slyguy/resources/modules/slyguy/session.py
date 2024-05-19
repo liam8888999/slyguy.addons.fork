@@ -2,10 +2,11 @@ import json
 import socket
 import shutil
 import re
-import ssl
 import os
 import functools
+import random
 from gzip import GzipFile
+from ssl import OPENSSL_VERSION
 
 import requests
 import urllib3
@@ -27,16 +28,19 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # KODI 17.6/18.9: OpenSSL 1.0.2j  26 Sep 2016
 # KODI 19.5: OpenSSL 1.1.1d  10 Sep 2019
 # KODI 20.0: OpenSSL 1.1.1q  5 Jul 2022
-log.debug(ssl.OPENSSL_VERSION)
+# KODI 21.0: OpenSSL 1.1.1q  5 Jul 2022
+log.debug(OPENSSL_VERSION)
 
 DEFAULT_HEADERS = {
     'User-Agent': DEFAULT_USERAGENT,
 }
 
 SSL_CIPHERS = 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-SHA:ECDHE-ECDSA-AES256-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA:AES256-SHA'
-SSL_OPTIONS = ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3 | ssl.OP_NO_COMPRESSION
+SSL_CIPHERS = SSL_CIPHERS.split(':')
+random.shuffle(SSL_CIPHERS)
+SSL_CIPHERS = ':'.join(SSL_CIPHERS)
+SSL_OPTIONS = urllib3.util.ssl_.OP_NO_SSLv2 | urllib3.util.ssl_.OP_NO_SSLv3 | urllib3.util.ssl_.OP_NO_COMPRESSION | urllib3.util.ssl_.OP_NO_TICKET
 DNS_CACHE = dns.resolver.Cache()
-
 
 def json_override(func, error_msg):
     try:
@@ -58,7 +62,8 @@ class DOHResolver(object):
         self.nameservers = nameservers or []
         self._session = RawSession()
 
-    def query(self, host):
+    def query(self, host, source=None):
+        #TODO: use source ip address
         class DNSResultWrapper(object):
             def __init__(self, answer):
                 self.answer = answer
@@ -77,8 +82,7 @@ class DOHResolver(object):
                 info = self._adapter.getaddrinfo(server_host, 443 if server.lower().startswith('https') else 80)
                 families = [x[0] for x in info]
 
-                params = {'name': host, 'dns': host}
-
+                params = {'name': host}
                 # prefer IPV4
                 if socket.AF_INET in families or socket.AF_INET6 not in families:
                     params['type'] = 'A'
@@ -122,7 +126,7 @@ class SessionAdapter(requests.adapters.HTTPAdapter):
     def connection_from_pool_key(self, func, pool_key, request_context):
         if self.session_data['ssl_ciphers'] or self.session_data['ssl_options']:
             context_key = (self.session_data['ssl_ciphers'], self.session_data['ssl_options'])
-            request_context['ssl_context'] = self._context_cache[context_key] = self._context_cache.get(context_key, requests.packages.urllib3.util.ssl_.create_urllib3_context(ciphers=SSL_CIPHERS, options=SSL_OPTIONS))
+            request_context['ssl_context'] = self._context_cache[context_key] = self._context_cache.get(context_key, requests.packages.urllib3.util.ssl_.create_urllib3_context(ciphers=self.session_data['ssl_ciphers'], options=self.session_data['ssl_options']))
             pool_key = pool_key._replace(key_ssl_context=context_key)
 
         if self.session_data['interface_ip']:
@@ -162,7 +166,7 @@ class SessionAdapter(requests.adapters.HTTPAdapter):
 
         elif self.session_data['resolver'] and self.session_data['resolver'][0] == host:
             try:
-                host = self.session_data['resolver'][1].query(host)[0].to_text()
+                host = self.session_data['resolver'][1].query(host, source=self.session_data['interface_ip'])[0].to_text()
                 log.debug('DNS Resolver: {} -> {} -> {}'.format(orig_host, self.session_data['resolver'][1].nameservers[0], host))
             except Exception as e:
                 log.exception(e)
@@ -317,7 +321,11 @@ class RawSession(requests.Session):
 
             self._session_cache[url] = session_data
 
-        self._adapter.session_data = session_data
+        if session_data['interface_ip']:
+            if not session_data['resolver']:
+                log.warning("DNS leak! DNS requests will be going via the default interface. Specify a DNS server in smart urls to fix")
+            elif isinstance(session_data['resolver'][1], DOHResolver):
+                log.warning("DNS leak! The DOH DNS & request only will be made using the default interface (support coming soon). All other requests will use the specified interface.")
 
         if session_data['url'] != url:
             log.debug("URL Changed: {}".format(session_data['url']))
@@ -342,6 +350,8 @@ class RawSession(requests.Session):
                 session_data['ssl_ciphers'] += '@SECLEVEL=0'
             kwargs['verify'] = False
             kwargs['cert'] = self._get_cert()
+
+        self._adapter.session_data = session_data
 
         if 'verify' not in kwargs:
             kwargs['verify'] = self._verify

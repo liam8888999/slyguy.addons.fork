@@ -288,7 +288,7 @@ class API(object):
         region = session['portabilityLocation']['countryCode'] if session['portabilityLocation'] else session['location']['countryCode']
         maturity = session['preferredMaturityRating']['impliedMaturityRating'] if session['preferredMaturityRating'] else 1850
         kids_mode = profile['attributes']['kidsModeEnabled'] if profile else False
-        app_language = settings.get('app_language').strip() or (profile['attributes']['languagePreferences']['appLanguage'] if profile else 'en-US')
+        app_language = profile['attributes']['languagePreferences']['appLanguage'] if profile else 'en-US'
 
         _args = {
             'apiVersion': '{apiVersion}',
@@ -410,6 +410,61 @@ class API(object):
         endpoint = self.get_config()['services']['telemetry']['client']['endpoints']['postEvent']['href']
         return self._session.post(endpoint, json=payload).status_code
 
+    def playback_data(self, playback_url, wv_secure=False):
+        self._set_token()
+
+        headers = {'accept': 'application/vnd.media-service+json; version={}'.format(6 if self._cache['basic_tier'] else 5), 'authorization': self._cache.get('access_token'), 'x-dss-feature-filtering': 'true'}
+
+        payload = {
+            "playback": {
+                "attributes": {
+                    "codecs": {
+                        'supportsMultiCodecMaster': False, #if true outputs all codecs and resoultion in single playlist
+                    },
+                    "protocol": "HTTPS",
+                    #"ads": "",
+                    "frameRates": [60],
+                    "assetInsertionStrategy": "SGAI",
+                    "playbackInitializationContext": "ONLINE"
+                },
+            }
+        }
+
+        video_ranges = []
+        audio_types = []
+
+        # atmos not yet supported on version=6 (basic tier). Add in-case support is added
+        if settings.getBool('dolby_atmos', False):
+            audio_types.append('ATMOS')
+
+        # DTSX works on both tiers
+        if settings.getBool('dtsx', False):
+            audio_types.append('DTS_X')
+
+        if wv_secure and settings.getBool('dolby_vision', False):
+            video_ranges.append('DOLBY_VISION')
+
+        if wv_secure and settings.getBool('hdr10', False):
+            video_ranges.append('HDR10')
+
+        if settings.getBool('hevc', False):
+            payload['playback']['attributes']['codecs'] = {'video': ['h264', 'h265']}
+
+        if audio_types:
+            payload['playback']['attributes']['audioTypes'] = audio_types
+
+        if video_ranges:
+            payload['playback']['attributes']['videoRanges'] = video_ranges
+
+        if not wv_secure:
+            payload['playback']['attributes']['resolution'] = {'max': ['1280x720']}
+
+        scenario = 'ctr-high' if wv_secure else 'ctr-regular'
+        endpoint = playback_url.format(scenario=scenario)
+        playback_data = self._session.post(endpoint, headers=headers, json=payload).json()
+        self._check_errors(playback_data)
+        return playback_data
+
     def logout(self):
         userdata.delete('refresh_token')
         mem_cache.delete('transaction_id')
@@ -447,60 +502,23 @@ class API(object):
         endpoint = self._endpoint(self.get_config()['services']['explore']['client']['endpoints']['search']['href'], version=EXPLORE_VERSION)
         return self._json_call(endpoint, params=params)['data']['page']
 
-    def playback_data(self, playback_url, wv_secure=False):
-        self._set_token()
-
-        headers = {'accept': 'application/vnd.media-service+json; version={}'.format(6 if self._cache['basic_tier'] else 5), 'authorization': self._cache.get('access_token'), 'x-dss-feature-filtering': 'true'}
-
-        payload = {
-            "playback": {
-                "attributes": {
-                    "codecs": {
-                        'supportsMultiCodecMaster': False, #if true outputs all codecs and resoultion in single playlist
-                    },
-                    "protocol": "HTTPS",
-                    #"ads": "",
-                    "frameRates": [60],
-                    "assetInsertionStrategy": "SGAI",
-                    "playbackInitializationContext": "ONLINE"
-                },
-            }
+    def explore_upnext(self, content_id):
+        params = {
+            'contentId': content_id,
         }
+        endpoint = self._endpoint(self.get_config()['services']['explore']['client']['endpoints']['getUpNext']['href'], version=EXPLORE_VERSION)
+        return self._json_call(endpoint, params=params)['data']['upNext']
 
-        video_ranges = []
-        audio_types = []
-
-        # atmos not yet supported on version=6 (basic tier). Add in-case support is added
-        if settings.getBool('dolby_atmos', False):
-            audio_types.append('atmos')
-
-        if wv_secure and settings.getBool('dolby_vision', False):
-            video_ranges.append('DOLBY_VISION')
-
-        if wv_secure and settings.getBool('hdr10', False):
-            video_ranges.append('HDR10')
-
-        if settings.getBool('hevc', False):
-            payload['playback']['attributes']['codecs'] = {'video': ['h264', 'h265']}
-
-        if audio_types:
-            payload['playback']['attributes']['audioTypes'] = audio_types
-
-        if video_ranges:
-            payload['playback']['attributes']['videoRanges'] = video_ranges
-
-        if not wv_secure:
-            payload['playback']['attributes']['resolution'] = {'max': ['1280x720']}
-
-        scenario = 'ctr-high' if wv_secure else 'ctr-regular'
-        endpoint = playback_url.format(scenario=scenario)
-        playback_data = self._session.post(endpoint, headers=headers, json=payload).json()
-        self._check_errors(playback_data)
-        return playback_data
+    def explore_deeplink(self, family_id):
+        params = {
+            'refId': family_id,
+            'refIdType': 'encodedFamilyId',
+        }
+        endpoint = self._endpoint(self.get_config()['services']['explore']['client']['endpoints']['getDeeplink']['href'], version=EXPLORE_VERSION)
+        return self._json_call(endpoint, params=params)['data']['deeplink']['actions'][0]['pageId'].replace('entity-','')
 
     def explore_playback(self, resource_id, wv_secure=False):
         self._set_token()
-
         headers = {'accept': 'application/vnd.media-service+json', 'authorization': self._cache.get('access_token'), 'x-dss-feature-filtering': 'true'}
 
         payload = {
@@ -522,9 +540,13 @@ class API(object):
         video_ranges = []
         audio_types = []
 
-        # atmos not yet supported on version=6 (basic tier). Add in-case support is added
+        # atmos not yet supported on basic tier. Add in-case support is added
         if settings.getBool('dolby_atmos', False):
-            audio_types.append('atmos')
+            audio_types.append('ATMOS')
+
+        # DTSX works on both tiers
+        if settings.getBool('dtsx', False):
+            audio_types.append('DTS_X')
 
         if wv_secure and settings.getBool('dolby_vision', False):
             video_ranges.append('DOLBY_VISION')

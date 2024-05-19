@@ -49,9 +49,10 @@ class API(object):
 
     def channels(self, region):
         params = {
-            'device': 'ctv_androidtv',
-            'streamParams': 'ctvandroid4.10.1',
+            'device': 'web',
+            'streamParams': 'web,chrome,windows',
             'region': region,
+            'offset': 0,
         }
         return self._session.get(LIVESTREAM_URL, params=params).json()['data']['getLivestream']
 

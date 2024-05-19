@@ -23,6 +23,9 @@ try: KODI_VERSION = int(xbmc.getInfoLabel("System.BuildVersion").split('.')[0])
 except: KODI_VERSION = 18
 
 REPO_DOMAIN = 'https://slyguy.uk'
+DNS_OVERRIDE_DOMAINS = ['slyguy.uk','i.mjh.nz','dai.google.com']
+# 18 and below have cert error when using 1.1.1.1 hostname
+DNS_OVERRIDE_SERVER = 'https://{}/dns-query'.format('1.1.1.1' if KODI_VERSION >= 19 else 'cloudflare-dns.com')
 
 #### DATABASE #####
 DB_PATH         = os.path.join(ADDON_PROFILE, 'data.db')
