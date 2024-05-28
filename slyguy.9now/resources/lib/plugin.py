@@ -4,7 +4,7 @@ import codecs
 import arrow
 from six.moves.urllib.parse import urlencode, parse_qsl
 from kodi_six import xbmcplugin
-from slyguy import plugin, gui, settings, userdata, inputstream
+from slyguy import plugin, settings, inputstream
 from slyguy.constants import *
 
 from .api import API

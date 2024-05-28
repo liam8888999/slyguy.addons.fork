@@ -97,7 +97,7 @@ class BaseLanguage(object):
     HTTP_TIMEOUT                = 32044
     HTTP_RETRIES                = 32045
     IA_WEBOS_ERROR              = 32046
-
+    DISABLE_DNS_OVERRIDES       = 32047
     QUALITY_SKIP                = 32048
     NO_AUTOPLAY_FOUND           = 32049
     CONFIRM_MIGRATE             = 32050
@@ -170,7 +170,7 @@ class BaseLanguage(object):
     RENAME_BOOKMARK             = 32117
     XZ_ERROR                    = 32118
     INSTALLING_APT_IA           = 32119
-
+    NO_CONTEXT_METHOD           = 32120
     DEFAULT_SUBTITLE            = 32121
     WV_REVOKED                  = 32122
     WV_REVOKED_CONFIRM          = 32123
@@ -210,6 +210,8 @@ class BaseLanguage(object):
     PLAYBACK_FAILED             = 16026
     AUTO                        = 16316
     TRAILER                     = 20410
+    PLAY_NEXT                   = 10008
+    QUEUE_ITEM                  = 13347
 
     def __getattribute__(self, name):
         attr = object.__getattribute__(self, name)

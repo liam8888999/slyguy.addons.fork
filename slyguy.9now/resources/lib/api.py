@@ -1,7 +1,12 @@
-from slyguy import util
+from time import time
+
+from slyguy import util, userdata
+from slyguy.util import jwt_data
+from slyguy.mem_cache import cached
 from slyguy.session import Session
 
 from .constants import *
+
 
 class API(object):
     def __init__(self):
@@ -47,10 +52,23 @@ class API(object):
     def category(self, category):
         return self._session.get('/genres/{category}'.format(category=category), params={'device': 'web'}).json()
 
+    def _get_token(self):
+        token = userdata.get('shared_token')
+        if token:
+            token_data = jwt_data(token)
+            if token_data['exp'] > time() - 60:
+                return token
+
+        token = self._session.get(TOKEN_URL).text.strip()
+        userdata.set('shared_token', token)
+        return token
+
+    @cached(60*5)
     def channels(self, region):
         params = {
             'device': 'web',
             'streamParams': 'web,chrome,windows',
+            'token': self._get_token(),
             'region': region,
             'offset': 0,
         }

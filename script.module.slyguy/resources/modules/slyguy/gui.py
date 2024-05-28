@@ -219,7 +219,7 @@ class Item(object):
     def __init__(self, id=None, label='', path=None, playable=False, info=None, context=None,
             headers=None, cookies=None, properties=None, is_folder=None, art=None, inputstream=None,
             video=None, audio=None, subtitles=None, use_proxy=True, specialsort=None, custom=None, proxy_data=None,
-            resume_from=None, force_resume=False, dns_rewrites=None):
+            resume_from=None, force_resume=False, dns_rewrites=None, slug=None):
 
         self.id          = id
         self.label       = label
@@ -244,6 +244,12 @@ class Item(object):
         self.use_proxy   = use_proxy
         self.resume_from = resume_from
         self.force_resume = force_resume
+        self.slug = slug
+        if self.slug is None:
+            try:
+                self.slug = sys.argv[2]
+            except IndexError:
+                self.slug = self.path
 
     def update(self, **kwargs):
         for key in kwargs:
@@ -357,8 +363,15 @@ class Item(object):
             if self.path:
                 self.path = add_url_args(self.path, _play=1)
 
-        if self.context:
-            li.addContextMenuItems(self.context)
+        context_items = [x for x in self.context]
+        if self.playable and (KODI_VERSION < 20 or ROUTE_LIVE_TAG not in self.path):
+            # PlayNext added in Kodi 18
+            if KODI_VERSION > 17:
+                context_items.append((_.PLAY_NEXT, 'Action(PlayNext)'))
+            context_items.append((_.QUEUE_ITEM, 'Action(Queue)'))
+
+        if context_items:
+            li.addContextMenuItems(context_items)
 
         if self.resume_from is not None:
             # Setting this on Kodi 18 or below removes all list item data (fixed in 19)
@@ -499,7 +512,7 @@ class Item(object):
 
                 proxy_data = {
                     'manifest': self.path,
-                    'slug': '{}-{}'.format(ADDON_ID, sys.argv[2]),
+                    'slug': '{}-{}'.format(ADDON_ID, self.slug),
                     'license_url': license_url,
                     'session_id': hash_6(time.time()),
                     'audio_whitelist': settings.get('audio_whitelist', ''),
