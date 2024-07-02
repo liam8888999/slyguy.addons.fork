@@ -1,7 +1,5 @@
 from time import time
 
-import requests
-
 from . import settings
 from .constants import DONOR_URL, DONOR_CHECK_TIME, DONOR_TIMEOUT, COMMON_ADDON
 from .util import get_kodi_string, set_kodi_string

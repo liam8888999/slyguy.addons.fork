@@ -659,16 +659,29 @@ def fix_language(language=None):
     if not language:
         return None
 
-    language = language.lower().strip()
+    language = language.strip()
     split = language.split('-')
-
     if len(split) > 1 and split[1].lower() == split[0].lower():
-        return split[0]
+        return split[0].lower()
 
-    # Kodi only supports 2 letter codes before the -
-    # https://github.com/xbmc/xbmc/blob/master/xbmc/utils/LangCodeExpander.cpp
-    if len(split[0]) == 2:
-        return split[0]
+    # any non es-ES, treat as Spanish Argentina
+    if len(split) > 1 and split[0].lower() == 'es':
+        return 'es-AR'
+
+    if language.lower() == 'pt-br':
+        return 'pb'
+
+    if language.lower() == 'cmn-tw':
+        return 'zh-TW'
+
+    if split[0].lower() == 'en':
+        return 'en'
+
+    if language.lower() in ('nb','nn'):
+        return 'no'
+
+    if len(split[0]) == 2 and KODI_VERSION < 20:
+        return split[0].lower()
 
     return language
 

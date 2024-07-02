@@ -447,7 +447,7 @@ class API(object):
         if wv_secure and settings.getBool('hdr10', False):
             video_ranges.append('HDR10')
 
-        if settings.getBool('hevc', False):
+        if settings.getBool('h265', False):
             payload['playback']['attributes']['codecs'] = {'video': ['h264', 'h265']}
 
         if audio_types:
@@ -491,9 +491,13 @@ class API(object):
         endpoint = self._endpoint(self.get_config()['services']['explore']['client']['endpoints']['getSet']['href'], version=EXPLORE_VERSION, setId=set_id)
         return self._json_call(endpoint, params=params)['data']['set']
 
-    def explore_season(self, season_id):
+    def explore_season(self, season_id, page=1):
+        params = {
+            'limit': 999,
+            'offset': 30*(page-1),
+        }
         endpoint = self._endpoint(self.get_config()['services']['explore']['client']['endpoints']['getSeason']['href'], version=EXPLORE_VERSION, seasonId=season_id)
-        return self._json_call(endpoint)['data']['season']
+        return self._json_call(endpoint, params=params)['data']['season']
 
     def explore_search(self, query):
         params = {

@@ -150,37 +150,34 @@ class RequestHandler(BaseHTTPRequestHandler):
             if key not in REMOVE_IN_HEADERS:
                 self._headers[key] = value
 
-        session_type = self._headers.pop('session_type', DEFAULT_SESSION_NAME)
         session_addonid = self._headers.pop('session_addonid', None)
-        self._session = PROXY_GLOBAL['sessions'].get(session_type) or {}
-
-        if session_addonid and session_addonid != self._session.get('addon_id'):
+        if session_addonid:
+            session_type = self._headers.pop('session_type', DEFAULT_SESSION_NAME)
+            self._session = PROXY_GLOBAL['sessions'].get(session_type) or {}
+            if session_addonid != self._session.get('addon_id'):
+                self._session = {
+                    'addon_id': session_addonid,
+                    'verify': settings.getBool('verify_ssl', True),
+                    'timeout': settings.getInt('http_timeout', 30),
+                    'dns_rewrites': get_dns_rewrites(addon_id=session_addonid),
+                    'proxy_server': settings.get('proxy_server'),
+                }
+                log.debug('Session created from header addon_id: {}'.format(session_addonid))
+        else:
+            session_type = DEFAULT_SESSION_NAME
+            self._session = PROXY_GLOBAL['sessions'].get(session_type) or {}
             try:
-                _settings = settings.Settings(xbmcaddon.Addon(session_addonid))
+                proxy_data = json.loads(get_kodi_string('_slyguy_proxy_data'))
+                set_kodi_string('_slyguy_proxy_data', '')
+
+                if self._session.get('session_id') != proxy_data['session_id']:
+                    self._session = {}
+
+                if not self._session:
+                    log.debug('Session created from proxy data')
+                    self._session.update(proxy_data)
             except:
-                _settings = {}
-
-            self._session = {
-                'addon_id': session_addonid,
-                'verify': settings.common_settings.getBool('verify_ssl', True),
-                'timeout': settings.common_settings.getInt('http_timeout', 30),
-                'dns_rewrites': get_dns_rewrites(addon_id=session_addonid),
-                'proxy_server': _settings.get('proxy_server') or settings.common_settings.get('proxy_server'),
-            }
-            log.debug('Session created from header addon_id: {}'.format(session_addonid))
-
-        try:
-            proxy_data = json.loads(get_kodi_string('_slyguy_proxy_data'))
-            set_kodi_string('_slyguy_proxy_data', '')
-
-            if self._session.get('session_id') != proxy_data['session_id']:
-                self._session = {}
-
-            if not self._session:
-                log.debug('Session created from proxy data')
-                self._session.update(proxy_data)
-        except:
-            pass
+                pass
 
         PROXY_GLOBAL['sessions'][session_type] = self._session
 
@@ -601,18 +598,19 @@ class RequestHandler(BaseHTTPRequestHandler):
                         if (not atmos_enabled and is_atmos) or (not ac3_enabled and codecs == 'ac-3') or (not ec3_enabled and codecs == 'ec-3') or (max_channels and channels > max_channels):
                             continue
 
-                        if is_atmos and KODI_VERSION < 21:
+                        if is_atmos:
                             new_set = adap_set.cloneNode(deep=True)
 
-                            new_set.setAttribute('name', 'ATMOS')
+                            if KODI_VERSION < 21:
+                                new_set.setAttribute('name', 'ATMOS')
                             new_set.setAttribute('id', '{}-atmos'.format(attribs.get('id','')))
-                            new_set.setAttribute('lang', _(_.ATMOS, name=attribs.get('lang','')))
+                            new_set.setAttribute('lang', attribs.get('lang',''))
 
                             for elem in new_set.getElementsByTagName("Representation"):
                                 new_set.removeChild(elem)
                             new_set.appendChild(stream)
 
-                            if atmos_channels:
+                            if atmos_channels and KODI_VERSION < 21:
                                 for elem in stream.getElementsByTagName("AudioChannelConfiguration"):
                                     stream.removeChild(elem)
 
@@ -1253,7 +1251,12 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         base_url = urljoin(response.url, '/')
 
+        def relative_replace(match):
+            return match.group(0).replace(match.group(1), urljoin(response.url, match.group(1)))
+
         m3u8 = re.sub(r'^/', r'{}'.format(base_url), m3u8, flags=re.I|re.M)
+        m3u8 = re.sub('^(\.\./.*)$', relative_replace, m3u8, flags=re.I|re.M)
+        m3u8 = re.sub('URI="(\.\./.*)"', relative_replace, m3u8, flags=re.I|re.M)
         m3u8 = re.sub(r'URI="/', r'URI="{}'.format(base_url), m3u8, flags=re.I|re.M)
 
         ## Convert to proxy paths
@@ -1416,8 +1419,6 @@ class RequestHandler(BaseHTTPRequestHandler):
             # only show error on initial license fail
             if not self._session.get('license_init'):
                 gui.notification(_.PLAYBACK_FAILED_CHECK_LOG, heading=_.WV_FAILED, icon=xbmc.getInfoLabel('Player.Icon'))
-                settings.common_settings.remove('_wv_last_check')
-                settings.common_settings.remove('_wv_latest_hash')
 
         self._output_response(response)
 
@@ -1492,7 +1493,7 @@ class Proxy(object):
         if self.started:
             return
 
-        target_port = settings.getInt('_proxy_port') or DEFAULT_PORT
+        target_port = settings.common_settings.getInt('_proxy_port') or DEFAULT_PORT
         port = check_port(target_port)
         if not port:
             port = check_port()
@@ -1501,7 +1502,7 @@ class Proxy(object):
                 return
 
             log.warning('Port {} not available. Switched to port {}'.format(target_port, port))
-            settings.setInt('_proxy_port', port)
+            settings.common_settings.setInt('_proxy_port', port)
 
         self._server = ThreadedHTTPServer((HOST, port), RequestHandler)
         self._server.allow_reuse_address = True
@@ -1510,7 +1511,7 @@ class Proxy(object):
         self.started = True
 
         proxy_path = 'http://{}:{}/'.format(HOST, port)
-        settings.set('_proxy_path', proxy_path)
+        settings.common_settings.set('_proxy_path', proxy_path)
         log.info("Proxy Started: {}".format(proxy_path))
 
     def stop(self):
@@ -1529,5 +1530,5 @@ class Proxy(object):
             log.error('Failed to save proxy session')
             log.exception(e)
 
-        settings.set('_proxy_path', '')
+        settings.common_settings.set('_proxy_path', '')
         log.debug("Proxy: Stopped")
