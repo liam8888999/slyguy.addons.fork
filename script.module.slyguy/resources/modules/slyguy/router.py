@@ -1,11 +1,11 @@
 import sys
 from six.moves.urllib_parse import parse_qsl, urlparse, urlencode
 
-from . import signals
-from .constants import *
-from .log import log
-from .language import _
-from .exceptions import RouterError, Exit
+from slyguy import signals, _
+from slyguy.constants import *
+from slyguy.log import log
+from slyguy.exceptions import RouterError, Exit
+
 
 _routes = {}
 
@@ -102,6 +102,7 @@ def redirect(url):
     function(**params)
     raise Exit()
 
+
 # router.dispatch('?_=_settings')
 def dispatch(url=None):
     if url is None:
@@ -134,3 +135,9 @@ def dispatch(url=None):
                 raise
 
     signals.emit(signals.AFTER_DISPATCH)
+
+
+signals.emit(signals.ON_ENTRY)
+if KODI_VERSION >= 19:
+    import atexit
+    atexit.register(lambda: signals.emit(signals.ON_EXIT))

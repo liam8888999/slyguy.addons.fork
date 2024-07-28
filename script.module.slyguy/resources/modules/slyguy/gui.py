@@ -1,36 +1,35 @@
 import sys
 import json
-import traceback
 import time
-from contextlib import contextmanager
 
 from six.moves.urllib_parse import urlparse
 from kodi_six import xbmcgui, xbmc
 
-from . import settings
-from .constants import *
-from .router import add_url_args
-from .language import _
-from .smart_urls import get_dns_rewrites
-from .util import fix_url, set_kodi_string, hash_6, get_url_headers, get_headers_from_url
-from .session import Session
+from slyguy import settings, _
+from slyguy.constants import *
+from slyguy.router import add_url_args
+from slyguy.smart_urls import get_dns_rewrites
+from slyguy.util import fix_url, set_kodi_string, hash_6, get_url_headers, get_headers_from_url
+from slyguy.session import Session
+from slyguy.dialog import * #backwards compatb
 
 
 if KODI_VERSION >= 20:
     from .listitem import ListItemInfoTag
 
-def _make_heading(heading=None):
-    return heading if heading else ADDON_NAME
+
+def redirect(location):
+    xbmc.executebuiltin('Container.Update({},replace)'.format(location))
+
+
+def get_view_id():
+    return xbmcgui.Window(xbmcgui.getCurrentWindowId()).getFocusId()
+
 
 def refresh():
     set_kodi_string('slyguy_refresh', '1')
     xbmc.executebuiltin('Container.Refresh')
 
-def redirect(location):
-    xbmc.executebuiltin('Container.Update({},replace)'.format(location))
-
-def get_view_id():
-    return xbmcgui.Window(xbmcgui.getCurrentWindowId()).getFocusId()
 
 def get_art_url(url, headers=None):
     if not url or not url.lower().startswith(('http', 'plugin')):
@@ -52,101 +51,15 @@ def get_art_url(url, headers=None):
 
     return url.split('|')[0] + '|' + get_url_headers(_headers)
 
-def exception(heading=None):
-    if not heading:
-        heading = _(_.PLUGIN_EXCEPTION, addon=ADDON_NAME, version=ADDON_VERSION)
-
-    exc_type, exc_value, exc_traceback = sys.exc_info()
-
-    tb = []
-
-    include = [ADDON_ID,  os.path.join(COMMON_ADDON_ID, 'resources', 'modules', 'slyguy'), os.path.join(COMMON_ADDON_ID, 'resources', 'lib')]
-    fline = True
-    for trace in reversed(traceback.extract_tb(exc_traceback)):
-        trace = list(trace)
-        if fline:
-            trace[0] = os.path.basename(trace[0])
-            tb.append(trace)
-            fline = False
-            continue
-
-        for _id in include:
-            if _id in trace[0]:
-                trace[0] = os.path.basename(trace[0])
-                tb.append(trace)
-
-    error = '{}\n{}'.format(''.join(traceback.format_exception_only(exc_type, exc_value)), ''.join(traceback.format_list(tb)))
-
-    text(error, heading=heading)
-
-class Progress(object):
-    def __init__(self, message='', heading=None, percent=0, background=False):
-        heading = _make_heading(heading)
-        self._background = background
-
-        if self._background:
-            self._dialog = xbmcgui.DialogProgressBG()
-        else:
-            self._dialog = xbmcgui.DialogProgress()
-
-        self._dialog.create(heading, *self._get_args(message))
-        self.update(percent)
-
-    def update(self, percent=0, message=None):
-        self._dialog.update(int(percent), *self._get_args(message))
-
-    def _get_args(self, message):
-        if self._background or message is None or KODI_VERSION > 18:
-            args = [message]
-        else:
-            args = message.split('\n')[:3]
-            while len(args) < 3:
-                args.append(' ')
-
-        return args
-
-    def iscanceled(self):
-        if self._background:
-            return self._dialog.isFinished()
-        else:
-            return self._dialog.iscanceled()
-
-    def close(self):
-        self._dialog.close()
-
-def progressbg(message='', heading=None, percent=0):
-    heading = _make_heading(heading)
-
-    dialog = xbmcgui.DialogProgressBG()
-    dialog.create(heading, message)
-    dialog.update(int(percent))
-
-    return dialog
-
-@contextmanager
-def busy():
-    xbmc.executebuiltin('ActivateWindow(busydialognocancel)')
-    try:
-        yield
-    finally:
-        xbmc.executebuiltin('Dialog.Close(busydialognocancel)')
-
-@contextmanager
-def progress(message='', heading=None, percent=0, background=False):
-    dialog = Progress(message=message, heading=heading, percent=percent, background=background)
-
-    try:
-        yield dialog
-    finally:
-        dialog.close()
 
 def notification(message, heading=None, icon=None, time=3000, sound=False):
-    heading = _make_heading(heading)
+    heading = make_heading(heading)
     icon = ADDON_ICON if not icon else icon
     xbmcgui.Dialog().notification(heading, message, get_art_url(icon), time, sound)
 
+
 def select(heading=None, options=None, autoclose=None, multi=False, **kwargs):
-    heading = _make_heading(heading)
+    heading = make_heading(heading)
     options = options or []
 
     if KODI_VERSION < 18:
@@ -169,57 +82,12 @@ def select(heading=None, options=None, autoclose=None, multi=False, **kwargs):
     else:
         return xbmcgui.Dialog().select(heading, _options, **kwargs)
 
-def input(message, default='', hide_input=False, **kwargs):
-    if hide_input:
-        kwargs['option'] = xbmcgui.ALPHANUM_HIDE_INPUT
-
-    return xbmcgui.Dialog().input(message, default, **kwargs)
-
-def numeric(message, default='', type=0, **kwargs):
-    try:
-        return int(xbmcgui.Dialog().numeric(type, message, defaultt=str(default), **kwargs))
-    except:
-        return None
-
-def error(message, heading=None):
-    heading = heading or _(_.PLUGIN_ERROR, addon=ADDON_NAME)
-    return ok(message, heading)
-
-def ok(message, heading=None):
-    heading = _make_heading(heading)
-    return xbmcgui.Dialog().ok(heading, message)
-
-def text(message, heading=None, **kwargs):
-    heading = _make_heading(heading)
-    return xbmcgui.Dialog().textviewer(heading, message)
-
-def yes_no(message, heading=None, autoclose=None, **kwargs):
-    heading = _make_heading(heading)
-
-    if autoclose:
-        kwargs['autoclose'] = autoclose
-
-    return xbmcgui.Dialog().yesno(heading, message, **kwargs)
-
-def info(item):
-    #playing python path via info dialog fixed in 19
-    if KODI_VERSION < 19:
-        item.path = None
-    dialog = xbmcgui.Dialog()
-    dialog.info(item.get_li())
-
-def context_menu(options):
-    if KODI_VERSION < 17:
-        return select(options=options)
-
-    dialog = xbmcgui.Dialog()
-    return dialog.contextmenu(options)
 
 class Item(object):
     def __init__(self, id=None, label='', path=None, playable=False, info=None, context=None,
             headers=None, cookies=None, properties=None, is_folder=None, art=None, inputstream=None,
             video=None, audio=None, subtitles=None, use_proxy=True, specialsort=None, custom=None, proxy_data=None,
-            resume_from=None, force_resume=False, dns_rewrites=None, slug=None):
+            resume_from=None, force_resume=False, dns_rewrites=None, slug=None, hide_favourites=None, no_resume=None):
 
         self.id          = id
         self.label       = label
@@ -244,7 +112,9 @@ class Item(object):
         self.use_proxy   = use_proxy
         self.resume_from = resume_from
         self.force_resume = force_resume
+        self.hide_favourites = hide_favourites
         self.slug = slug
+        self.no_resume = no_resume
         if self.slug is None:
             try:
                 self.slug = sys.argv[2]
@@ -274,6 +144,14 @@ class Item(object):
         info = self.info.copy()
         if self.label:
             li.setLabel(self.label)
+
+        if self.no_resume:
+            self.resume_from = 0
+            info['duration'] = 0
+            info['playcount'] = -2 # disable mark as watched
+
+        if not self.playable and 'playcount' not in info:
+            info['playcount'] = -2 # disable mark as watched
 
         if info:
             if not info.get('title') and self.label and info.get('mediatype'):
@@ -321,8 +199,10 @@ class Item(object):
             if info.get('date'):
                 try: li.setDateTime(info.pop('date'))
                 except: pass
-            #TODO: do own 20+ wrapper layer
-            ListItemInfoTag(li, 'video').set_info(info)
+
+            if info or self.is_folder:
+                #TODO: do own 20+ wrapper layer
+                ListItemInfoTag(li, 'video').set_info(info)
         else:
             if info.get('date'):
                 try: info['date'] = '{}.{}.{}'.format(info['date'][8:10], info['date'][5:7], info['date'][0:4])
@@ -331,10 +211,9 @@ class Item(object):
             if info.get('cast'):
                 try: info['cast'] = [(member['name'], member['role']) for member in info['cast']]
                 except: pass
-            li.setInfo('video', info)
 
-        if self.specialsort:
-            li.setProperty('specialsort', self.specialsort)
+            if info or self.is_folder:
+                li.setInfo('video', info)
 
         if self.video:
             li.addStreamInfo('video', self.video)
@@ -359,17 +238,26 @@ class Item(object):
 
             li.setArt(art)
 
-        if self.playable and not playing:
-            li.setProperty('IsPlayable', 'true')
-            if self.path:
-                self.path = add_url_args(self.path, _play=1)
+        if self.specialsort:
+            self.properties['specialsort'] = self.specialsort
+
+        if self.hide_favourites and KODI_VERSION > 20:
+            # Kodi 21+ only
+            self.properties['hide_add_remove_favourite'] = 'true'
 
         context_items = [x for x in self.context]
-        if self.playable and (KODI_VERSION < 20 or ROUTE_LIVE_TAG not in self.path):
-            # PlayNext added in Kodi 18
-            if KODI_VERSION > 17:
-                context_items.append((_.PLAY_NEXT, 'Action(PlayNext)'))
-            context_items.append((_.QUEUE_ITEM, 'Action(Queue)'))
+        if not playing:
+            if self.playable:
+                self.properties['IsPlayable'] = 'true'
+                if self.path:
+                    self.path = add_url_args(self.path, _play=1)
+                if KODI_VERSION < 20 or ROUTE_LIVE_TAG not in self.path:
+                    # PlayNext added in Kodi 18
+                    if KODI_VERSION > 17:
+                        context_items.append((_.PLAY_NEXT, 'Action(PlayNext)'))
+                    context_items.append((_.QUEUE_ITEM, 'Action(Queue)'))
+            else:
+                self.properties['IsPlayable'] = 'false'
 
         if context_items:
             li.addContextMenuItems(context_items)
@@ -382,6 +270,12 @@ class Item(object):
         if not self.force_resume and len(sys.argv) > 3 and sys.argv[3].lower() == 'resume:true':
             self.properties.pop('ResumeTime', None)
             self.properties.pop('TotalTime', None)
+
+        if KODI_VERSION >= 20 and 'ResumeTime' in self.properties:
+            li.getVideoInfoTag().setResumePoint(
+                self.properties.pop('ResumeTime'),
+                self.properties.pop('TotalTime', 1)
+            )
 
         for key in self.properties:
             li.setProperty(key, u'{}'.format(self.properties[key]))
@@ -541,6 +435,8 @@ class Item(object):
                     'timeout': settings.common_settings.getInt('http_timeout', 30),
                     'dns_rewrites': get_dns_rewrites(self.dns_rewrites),
                     'proxy_server': settings.get('proxy_server') or settings.common_settings.get('proxy_server'),
+                    'ip_mode': settings.common_settings.IP_MODE.value,
+                    'max_bandwidth': settings.common_settings.getInt('max_bandwidth', 0),
                     'max_width': settings.common_settings.getInt('max_width', 0),
                     'max_height': settings.common_settings.getInt('max_width', 0),
                     'max_channels': settings.common_settings.getInt('max_channels', 0),

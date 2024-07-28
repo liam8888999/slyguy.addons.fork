@@ -17,6 +17,7 @@ from slyguy.util import async_tasks
 from .api import API
 from .constants import *
 from .language import _
+from .settings import settings
 
 #Fix LOGIN
 # Can get password file from https://go.aftvnews.com/342525
