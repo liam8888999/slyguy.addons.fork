@@ -5,12 +5,13 @@ from xml.sax.saxutils import escape
 import arrow
 from six.moves.urllib_parse import urlparse, parse_qsl, quote_plus
 
-from slyguy import plugin, settings, signals, mem_cache
+from slyguy import plugin, signals, mem_cache
 from slyguy.exceptions import PluginError
 from slyguy.constants import ROUTE_LIVE_TAG
 
 from .api import API
 from .language import _
+from .settings import settings
 from .constants import *
 
 api = API()
@@ -24,10 +25,9 @@ def before_dispatch():
 def home(**kwargs):
     folder = plugin.Folder(cacheToDisc=False)
 
-    folder.add_item(label=_(_.HOME, _bold=True), path=plugin.url_for(content, slug='ctv-home'))
-
+    folder.add_item(label=_(_.LIVE_TV, _bold=True), path=plugin.url_for(live_tv))
+    folder.add_item(label=_(_.FEATURED, _bold=True), path=plugin.url_for(content, slug='ctv-home'))
     _nav(folder)
-
     folder.add_item(label=_(_.NEWS, _bold=True), path=plugin.url_for(content, slug='news'))
     folder.add_item(label=_(_.CATEGORIES, _bold=True), path=plugin.url_for(content, slug='all-categories'))
     folder.add_item(label=_(_.SEARCH, _bold=True), path=plugin.url_for(search))
@@ -51,13 +51,16 @@ def _get_url(url):
 
 @mem_cache.cached(60*5)
 def _nav(folder):
+    skips = ['live-tv']
+
     replaces = {
         'shows': plugin.url_for(shows),
-        'live-tv': plugin.url_for(live_tv),
     }
 
     for row in api.nav():
         slug = row['contentLink'].lstrip('/')
+        if slug in skips:
+            continue
         path = replaces.get(slug, plugin.url_for(content, slug=slug))
         folder.add_item(
             label = _(row['title'], _bold=True),

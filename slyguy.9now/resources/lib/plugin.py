@@ -29,6 +29,7 @@ def home(**kwargs):
         folder.add_item(label=_(_.LOGIN, _bold=True), path=plugin.url_for(login), bookmark=False)
     else:
         folder.add_item(label=_(_.LIVE_TV, _bold=True), path=plugin.url_for(live_tv))
+        folder.add_item(label=_(_.LIVE_EVENTS, _bold=True), path=plugin.url_for(live_events))
         folder.add_item(label=_(_.FEATURED, _bold=True), path=plugin.url_for(featured))
         folder.add_item(label=_(_.SHOWS, _bold=True), path=plugin.url_for(shows))
         folder.add_item(label=_(_.CATEGORIES, _bold=True), path=plugin.url_for(categories))
@@ -292,12 +293,18 @@ def live_events(**kwargs):
         start = arrow.get(row['startDate']).to('local')
         end = arrow.get(row['endDate']).to('local')
 
-        plot = row['subtitle']
-        if now > start and now < end:
-            label = row['displayName']
+        if start.floor('day') == now.floor('day'):
+            start_s = start.format('h:mma')
+        elif start < now.shift(days=6):
+            start_s = start.format('ddd h:mma')
         else:
-            label = u'{} [B][{}][/B]'.format(row['displayName'], start.humanize())
-            plot += '\n\n[B]{}[/B]'.format(start.format('h:mma DD/MM/YYYY'))
+            start_s = start.format('ddd Do MMMM h:mma')
+
+        plot = u'{}\n[B]{} - {}[/B]\n\n{}'.format(row['subtitle'], start_s, end.format('h:mma'), row.get('description')).strip()
+        if start > now:
+            label = u'{} [B][{}][/B]'.format(row['displayName'], start_s)
+        else:
+            label = row['displayName']
 
         folder.add_item(
             label = label,
@@ -342,23 +349,17 @@ def live_tv(**kwargs):
             playable = True,
         )
 
-    if data.get('events'):
-        folder.add_item(
-            label = _(_.LIVE_EVENTS, _bold=True),
-            info = {'plot': _(_.EVENT_COUNT, count=len(data['events']), _bold=True)},
-            path = plugin.url_for(live_events),
-            specialsort = 'bottom',
-        )
-
     return folder
 
 
 @plugin.route()
+@plugin.login_required()
 def play(reference, **kwargs):
     return _play(reference, is_live=ROUTE_LIVE_TAG in kwargs)
 
 
 @plugin.route()
+@plugin.login_required()
 def play_event(reference, **kwargs):
     event = None
     data = _channels()
@@ -384,6 +385,7 @@ def play_event(reference, **kwargs):
 
 
 @plugin.route()
+@plugin.login_required()
 def play_channel(reference, **kwargs):
     url = None
     data = _channels()
@@ -449,7 +451,7 @@ def _parse_episode(row):
 @plugin.merge()
 def playlist(output, **kwargs):
     data = _channels()
-    region = settings.getEnum('region', REGIONS, default=NSW)
+    region = settings.REGION.value
 
     with codecs.open(output, 'w', encoding='utf8') as f:
         f.write(u'#EXTM3U x-tvg-url="{}"'.format(EPG_URL))

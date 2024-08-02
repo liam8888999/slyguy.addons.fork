@@ -29,7 +29,7 @@ REDIRECT_HOSTS = ['i.mjh.nz', 'r.mjh.nz', 'c.mjh.nz', 'jmp2.uk']
 DNS_OVERRIDE_DOMAINS = REDIRECT_HOSTS + ['dai.google.com', REPO_HOST]
 DNS_OVERRIDE_SERVER = 'https://cloudflare-dns.com/dns-query'
 DONOR_URL = 'https://d.slyguy.uk/donors/{id}'
-DONOR_CHECK_TIME = (60*60*6) #6 hours
+DONOR_CHECK_TIME = (60*60*1) #1 hour
 DONOR_TIMEOUT = 172800 #48 hours
 UPDATE_TIME_LIMIT = 86400 #24 hours
 REQUIRED_UPDATE = [ADDON_ID, COMMON_ADDON_ID, DEPENDENCIES_ADDON_ID, REPO_ADDON_ID]
@@ -42,7 +42,7 @@ DB_PRAGMAS      = {
     'cache_size': -1 * 10000,  #10MB
     'foreign_keys': 1,
     'ignore_check_constraints': 0,
-    'synchronous': 0
+    'synchronous': 1
 }
 DB_TABLENAME = '_db'
 ###################
@@ -60,6 +60,7 @@ CACHE_CLEAN_KEY      = '_cache_cleaned'
 #################
 
 IPTV_MERGE_ID        = 'plugin.program.iptv.merge'
+MERGE_SETTING_FILE   = '.iptv_merge'
 
 #### ROUTING ####
 ROUTE_TAG              = '_'

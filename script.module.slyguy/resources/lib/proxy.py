@@ -19,7 +19,7 @@ from pycaption import detect_format, WebVTTWriter
 
 from slyguy import gui, settings, log, _
 from slyguy.constants import *
-from slyguy.util import check_port, remove_file, get_kodi_string, set_kodi_string, fix_url, run_plugin, lang_allowed, fix_language
+from slyguy.util import check_port, remove_file, get_kodi_string, set_kodi_string, fix_url, run_plugin, lang_allowed, fix_language, pthms_to_seconds
 from slyguy.exceptions import Exit
 from slyguy.session import RawSession
 from slyguy.router import add_url_args
@@ -47,6 +47,7 @@ CODECS = [
 CODECS = [[re.compile(x[0], re.IGNORECASE), x[1]] for x in CODECS]
 
 ATTRIBUTELISTPATTERN = re.compile(r'''((?:[^,"']|"[^"]*"|'[^']*')+)''')
+DEFAULT_KID_PATTERN = re.compile(':default_KID="([0-9a-fA-F]{32})"')
 
 DEFAULT_SESSION_NAME = 'playback'
 PROXY_GLOBAL = {
@@ -476,6 +477,18 @@ class RequestHandler(BaseHTTPRequestHandler):
         data = data.replace('urn:mpeg:mpegB:cicp:ChannelConfiguration', 'urn:mpeg:dash:23003:3:audio_channel_configuration:2011')
         data = data.replace('dvb:', '') #showmax mpd has dvb: namespace without declaration
 
+        def fix_default_kids(input_text):
+            def format_kid(match):
+                kid = match.group(1)
+                formatted_kid = f"{kid[:8]}-{kid[8:12]}-{kid[12:16]}-{kid[16:20]}-{kid[20:]}"
+                log.info('Dash Fix: Replaced default_KID {} -> {}'.format(kid, formatted_kid))
+                return ':default_KID="{}"'.format(formatted_kid)
+            replaced_text = re.sub(DEFAULT_KID_PATTERN, format_kid, input_text)
+            return replaced_text
+
+        # replace any kids without - (Hulu) with the correct format (fixes https://github.com/xbmc/inputstream.adaptive/issues/1530)
+        data = fix_default_kids(data)
+
         try:
             root = parseString(data.encode('utf8'))
         except Exception as e:
@@ -491,22 +504,58 @@ class RequestHandler(BaseHTTPRequestHandler):
         mpd = root.getElementsByTagName("MPD")[0]
         mpd_attribs = list(mpd.attributes.keys())
 
-        ## Remove publishTime PR: https://github.com/xbmc/inputstream.adaptive/pull/564
-        if 'publishTime' in mpd_attribs:
-            mpd.removeAttribute('publishTime')
-            log.debug('Dash Fix: publishTime removed')
+        if mpd.getAttribute('type') == 'dynamic':
+            # Fix UTC timings
+            try:
+                seconds_diff = 0
+                utc = mpd.getElementsByTagName("UTCTiming")
+                publish_time = arrow.get(mpd.getAttribute('publishTime'))
+                if utc:
+                    utc_time = arrow.get(utc[0].getAttribute('value'))
+                    seconds_diff = max((utc_time - publish_time).total_seconds(), 0)
+                else:
+                    for elem in mpd.getElementsByTagName("SupplementalProperty"):
+                        if elem.getAttribute('schemeIdUri') == 'urn:scte:dash:utc-time':
+                            utc_time = arrow.get(elem.getAttribute('value'))
+                            seconds_diff = max((utc_time - publish_time).total_seconds(), 0)
+                            break
 
-        ## NOT NEEDED
-        ## Remove mediaPresentationDuration from live PR: https://github.com/xbmc/inputstream.adaptive/pull/762
-        # if (mpd.getAttribute('type') == 'dynamic' or 'timeShiftBufferDepth' in mpd_attribs) and 'mediaPresentationDuration' in mpd_attribs:
-        #     mpd.removeAttribute('mediaPresentationDuration')
-        #     log.debug('Dash Fix: mediaPresentationDuration removed from live')
+                if seconds_diff > 0:
+                    seconds_diff += 10
+                    # Kodi 21+
+                    if KODI_VERSION > 20:
+                        mpd.setAttribute('suggestedPresentationDelay', 'PT{}S'.format(seconds_diff))
+                    else:
+                        avail = mpd.getAttribute('availabilityStartTime')
+                        if avail:
+                            avail_start = arrow.get(avail).shift(seconds=seconds_diff)
+                            mpd.setAttribute('availabilityStartTime', avail_start.format('YYYY-MM-DDTHH:mm:ss'+'Z'))
+            except:
+                pass
 
-        ## Fix mpd overalseconds bug issue: https://github.com/xbmc/inputstream.adaptive/issues/731 / https://github.com/xbmc/inputstream.adaptive/pull/881
-        if mpd.getAttribute('type') == 'dynamic' and 'timeShiftBufferDepth' not in mpd_attribs and 'mediaPresentationDuration' not in mpd_attribs:
-            buffer_seconds = (arrow.now() - arrow.get(mpd.getAttribute('availabilityStartTime'))).total_seconds()
-            mpd.setAttribute('mediaPresentationDuration', 'PT{}S'.format(buffer_seconds))
-            log.debug('Dash Fix: {}S mediaPresentationDuration added'.format(buffer_seconds))
+            # Remove publishTime PR: https://github.com/xbmc/inputstream.adaptive/pull/564
+            if 'publishTime' in mpd_attribs:
+                mpd.removeAttribute('publishTime')
+                log.debug('Dash Fix: publishTime removed')
+
+            # set maximum 4s update period
+            existing = pthms_to_seconds(mpd.getAttribute('minimumUpdatePeriod')) or 4
+            mpd.setAttribute('minimumUpdatePeriod', "PT{}S".format(min(existing, 4)))
+
+            # set minimum 24s live delay
+            existing = pthms_to_seconds(mpd.getAttribute('suggestedPresentationDelay')) or 0
+            mpd.setAttribute('suggestedPresentationDelay', 'PT{}S'.format(max(existing, 24)))
+
+            # set minimum 16s buffer time
+            existing = pthms_to_seconds(mpd.getAttribute('minBufferTime')) or 0
+            mpd.setAttribute('minBufferTime', 'PT{}S'.format(max(existing, 16)))
+
+            ## Fix mpd overalseconds bug issue: https://github.com/xbmc/inputstream.adaptive/issues/731 / https://github.com/xbmc/inputstream.adaptive/pull/881     
+            if 'timeShiftBufferDepth' not in mpd_attribs and 'mediaPresentationDuration' not in mpd_attribs:
+                buffer_seconds = (arrow.now() - arrow.get(mpd.getAttribute('availabilityStartTime'))).total_seconds()
+                mpd.setAttribute('mediaPresentationDuration', 'PT{}S'.format(buffer_seconds))
+                log.debug('Dash Fix: {}S mediaPresentationDuration added'.format(buffer_seconds))
+
 
         ## SORT ADAPTION SETS BY BITRATE ##
         video_sets = []
@@ -580,7 +629,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                         for supplem in stream.getElementsByTagName('AudioChannelConfiguration'):
                             if 'audio_channel_configuration' in supplem.getAttribute('schemeIdUri'):
                                 try:
-                                    channels = supplem.getAttribute('value').replace('F801','6').replace('FE01','8')
+                                    channels = int(supplem.getAttribute('value').replace('F801','6').replace('FE01','8'))
                                 except:
                                     channels = 0
 
@@ -588,7 +637,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                             if supplem.getAttribute('value') == 'JOC':
                                 is_atmos = True
                             if 'EC3_ExtensionComplexityIndex' in (supplem.getAttribute('schemeIdUri') or ''):
-                                atmos_channels = supplem.getAttribute('value')
+                                channels = atmos_channels = int(supplem.getAttribute('value'))
 
                         if (not atmos_enabled and is_atmos) or (not ac3_enabled and codecs == 'ac-3') or (not ec3_enabled and codecs == 'ec-3') or (max_channels and channels > max_channels):
                             continue
@@ -611,7 +660,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
                                 elem = root.createElement('AudioChannelConfiguration')
                                 elem.setAttribute('schemeIdUri', 'urn:mpeg:dash:23003:3:audio_channel_configuration:2011')
-                                elem.setAttribute('value', atmos_channels)
+                                elem.setAttribute('value', str(atmos_channels))
                                 stream.appendChild(elem)
 
                             audio_sets.append([bandwidth, new_set, adap_parent])
@@ -882,8 +931,10 @@ class RequestHandler(BaseHTTPRequestHandler):
         ################
 
         ## Convert Location
-        # by default, wipe out the manifest so not parsed again
-        self._session['manifest'] = None
+        if KODI_VERSION < 21:
+            # wipe out manifest so not passed again
+            self._session['manifest'] = None
+
         for elem in root.getElementsByTagName('Location'):
             url = elem.firstChild.nodeValue
             if '://' not in url:
@@ -1257,8 +1308,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             return match.group(0).replace(match.group(1), urljoin(response.url, match.group(1)))
 
         m3u8 = re.sub(r'^/', r'{}'.format(base_url), m3u8, flags=re.I|re.M)
-        m3u8 = re.sub('^(\.\./.*)$', relative_replace, m3u8, flags=re.I|re.M)
-        m3u8 = re.sub('URI="(\.\./.*)"', relative_replace, m3u8, flags=re.I|re.M)
+        m3u8 = re.sub(r'^(\.\./.*)$', relative_replace, m3u8, flags=re.I|re.M)
+        m3u8 = re.sub(r'URI="(\.\./.*)"', relative_replace, m3u8, flags=re.I|re.M)
         m3u8 = re.sub(r'URI="/', r'URI="{}'.format(base_url), m3u8, flags=re.I|re.M)
 
         ## Convert to proxy paths

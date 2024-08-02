@@ -1,21 +1,21 @@
 import time
-import json
 
-from six.moves.urllib_parse import quote_plus, urlencode
-from kodi_six import xbmc
+from six.moves.urllib_parse import urlencode
 
-from slyguy import userdata, settings
+from slyguy import userdata
 from slyguy.session import Session
 from slyguy.exceptions import Error
-from slyguy.log import log
 from slyguy.util import cenc_init
 from slyguy.drm import req_wv_level, req_hdcp_level, WV_L1, HDCP_2_2
 
 from .constants import *
+from .settings import settings
 from .language import _
+
 
 class APIError(Error):
     pass
+
 
 class API(object):
     def new_session(self):
@@ -110,8 +110,7 @@ class API(object):
         return True
 
     def _device_data(self):
-        enable_h265 = settings.getBool('enable_h265', True)
-        enable_4k = settings.getBool('enable_4k', True) if (req_wv_level(WV_L1) and req_hdcp_level(HDCP_2_2)) else False
+        enable_h265 = settings.H265.value
 
         return {
             'type': 'console', #console, tv
@@ -121,12 +120,12 @@ class API(object):
             'stanName': STAN_NAME,
             'stanVersion': '4.32.1',
             'manufacturer': 'NVIDIA', #NVIDIA, Sony
-            'model': 'SHIELD Android TV' if (enable_4k or enable_h265) else '', #SHIELD Android TV, BRAVIA 4K 2020
+            'model': 'SHIELD Android TV' if enable_h265 else '', #SHIELD Android TV, BRAVIA 4K 2020
             'os': 'Android-9',
             'videoCodecs': 'h264,decode,dovi,h263,h265,hevc,mjpeg,mpeg2v,mp4,mpeg4,vc1,vp8,vp9',
             'audioCodecs': 'aac',
             'drm': 'widevine', #playready
-            'hdcpVersion': '2.2' if enable_4k else '0', #0, 1, 2, 2.2
+            'hdcpVersion': '2.2', #0, 1, 2, 2.2
             'colorSpace': 'hdr10',
             #'tz': '',
         }

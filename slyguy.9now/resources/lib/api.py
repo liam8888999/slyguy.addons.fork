@@ -1,7 +1,6 @@
 import time
 
-from slyguy import util, userdata, mem_cache, log
-from slyguy.util import jwt_data
+from slyguy import util, userdata, log
 from slyguy.session import Session
 
 from .constants import *
@@ -60,18 +59,22 @@ class API(object):
 
         userdata.set('access_token', data['accessToken'])
         userdata.set('token_expires', int(time.time()) + data['expiresIn'] - 30)
+        self._set_authentication(data['accessToken'])
 
     def featured(self):
         self._refresh_token()
-        return self._session.get('/home', params={'device': 'web'}).json()
+        data = self._session.get('/home', params={'device': 'web'}).json()
+        return self._check_error(data)
 
     def shows(self):
         self._refresh_token()
-        return self._session.get('/tv-series', params={'device': 'web'}).json()['tvSeries']
+        data = self._session.get('/tv-series', params={'device': 'web'}).json()
+        return self._check_error(data)['tvSeries']
 
     def show(self, show):
         self._refresh_token()
-        return self._session.get('/tv-series/{show}'.format(show=show), params={'device': 'web'}).json()
+        data = self._session.get('/tv-series/{show}'.format(show=show), params={'device': 'web'}).json()
+        return self._check_error(data)
 
     def episodes(self, show, season, page=1, items_per_page=None):
         self._refresh_token()
@@ -84,7 +87,8 @@ class API(object):
             params['take'] = items_per_page
             params['skip'] = (page-1)*items_per_page
 
-        return self._session.get('/tv-series/{show}/seasons/{season}/episodes'.format(show=show, season=season), params=params).json()
+        data = self._session.get('/tv-series/{show}/seasons/{season}/episodes'.format(show=show, season=season), params=params).json()
+        return self._check_error(data)
 
     def clips(self, show, season, page=1, items_per_page=None):
         self._refresh_token()
@@ -98,17 +102,24 @@ class API(object):
             params['take'] = items_per_page
             params['skip'] = (page-1)*items_per_page
 
-        return self._session.get('/tv-series/{show}/seasons/{season}/clips'.format(show=show, season=season), params=params).json()
+        data = self._session.get('/tv-series/{show}/seasons/{season}/clips'.format(show=show, season=season), params=params).json()
+        return self._check_error(data)
 
     def categories(self):
         self._refresh_token()
-        return self._session.get('/genres', params={'device': 'web'}).json()['genres']
+        data = self._session.get('/genres', params={'device': 'web'}).json()['genres']
+        return self._check_error(data)
 
     def category(self, category):
         self._refresh_token()
-        return self._session.get('/genres/{category}'.format(category=category), params={'device': 'web'}).json()
+        data = self._session.get('/genres/{category}'.format(category=category), params={'device': 'web'}).json()
+        return self._check_error(data)
 
-    @mem_cache.cached(60*2)
+    def _check_error(self, data):
+        if 'errors' in data:
+            raise Exception(data['errors'][0]['message'])
+        return data
+
     def channels(self, region):
         self._refresh_token()
         params = {
@@ -117,7 +128,8 @@ class API(object):
             'region': region,
             'offset': 0,
         }
-        return self._session.get(LIVESTREAM_URL, params=params).json()['data']['getLivestream']
+        data = self._session.get(LIVESTREAM_URL, params=params).json()
+        return self._check_error(data)['data']['getLivestream']
 
     def get_brightcove_src(self, reference):
         if not reference.isdigit():
@@ -132,5 +144,4 @@ class API(object):
         userdata.delete('access_token')
         userdata.delete('refresh_token')
         userdata.delete('token_expires')
-        mem_cache.empty()
         self.new_session()

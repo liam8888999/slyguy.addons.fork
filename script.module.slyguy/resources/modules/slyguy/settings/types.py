@@ -2,9 +2,10 @@ import os
 import json
 import xml.etree.ElementTree as ET
 
-from kodi_six import xbmc
+from kodi_six import xbmc, xbmcgui
 
 from slyguy import dialog, log, signals
+from slyguy.util import remove_file
 from slyguy.language import _, BaseLanguage
 from slyguy.constants import ADDON_ID, COMMON_ADDON_ID, NEW_SETTINGS, ADDON_PROFILE, ADDON_NAME, COMMON_ADDON
 
@@ -58,6 +59,7 @@ class Categories(object):
     PLAYER_ADVANCED = Category(_.ADVANCED, parent=PLAYER)
     NETWORK = Category(_.NETWORK, parent=ROOT)
     INTERFACE = Category(_.INTERFACE, parent=ROOT)
+    PVR_LIVE_TV = Category(_.PVR_LIVE_TV, parent=ROOT)
     SYSTEM = Category(_.SYSTEM, parent=ROOT)
 
 
@@ -191,7 +193,7 @@ class Setting(object):
 
     def get_value_label(self, value):
         if value is None or value == "":
-            return _.NO_VALUE
+            return _.NOT_SET
         else:
             return _(self._value_str, value=value)
 
@@ -260,9 +262,12 @@ class Bool(Setting):
 
 class Text(Setting):
     DEFAULT = ""
+    def __init__(self, *args, **kwargs):
+        self._input_type = kwargs.pop('input_type', xbmcgui.INPUT_ALPHANUM)
+        super(Text, self).__init__(*args, **kwargs)
 
     def select(self):
-        value = dialog.input(self._label, default=self.value)
+        value = dialog.input(self._label, default=self.value, type=self._input_type)
         if value:
             self.value = value
 
@@ -281,7 +286,10 @@ class Action(Setting):
 
     @property
     def label(self):
-        return self._label
+        value = self._label
+        if not self.is_enabled:
+            value = _(value, _color='gray')
+        return value
 
     def select(self):
         value = self._action
@@ -347,11 +355,16 @@ class Enum(Setting):
 
 
 def migrate(settings):
-    if not NEW_SETTINGS or BaseSettings.MIGRATED.value:
+    if not NEW_SETTINGS:
+        return
+
+    settings_path = os.path.join(ADDON_PROFILE, 'settings.xml')
+    if BaseSettings.MIGRATED.value:
+        if remove_file(settings_path):
+            log.info("Removed old settings.xml: '{}'".format(settings_path))
         return
 
     old_settings = {}
-    settings_path = os.path.join(ADDON_PROFILE, 'settings.xml')
     if os.path.exists(settings_path):
         try:
             tree = ET.parse(settings_path)
@@ -362,6 +375,12 @@ def migrate(settings):
                         old_settings[elem.attrib['id']] = value
         except Exception as e:
             log.error("Failed to parse old settings: {} ({})".format(settings_path, e))
+
+    default_overrides = {
+        'max_bandwidth': 7,
+        'epg_days': 3,
+        'pagination_multiplier': 1,
+    }
 
     count = 0
     for key in old_settings:
@@ -378,8 +397,8 @@ def migrate(settings):
 
         try:
             value = setting.from_text(xml_val)
-            if key == 'max_bandwidth' and value == 7:
-                value = 0
+            if key in default_overrides and default_overrides[key] == value:
+                value = setting._default
 
             if value != setting._default:
                 setting._set_value(value)

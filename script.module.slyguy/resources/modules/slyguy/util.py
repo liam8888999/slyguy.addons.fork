@@ -67,7 +67,7 @@ def kodi_db(name):
     for file in os.listdir(db_dir):
         db_path = os.path.join(db_dir, file)
 
-        result = re.match('{}([0-9]+)\.db'.format(name.lower()), file.lower())
+        result = re.match(r'{}([0-9]+)\.db'.format(name.lower()), file.lower())
         if result:
             options.append([db_path, int(result.group(1))])
 
@@ -626,7 +626,7 @@ def strip_html_tags(text):
     if not text:
         return ''
 
-    text = re.sub('\([^\)]*\)', '', text)
+    text = re.sub(r'\([^\)]*\)', '', text)
     text = re.sub('<[^>]*>', '', text)
     text = html.unescape(text)
     return text
@@ -680,6 +680,12 @@ def fix_language(language=None):
     if language.lower() in ('nb','nn'):
         return 'no'
 
+    if language.lower() == 'ekk':
+        return 'et'
+
+    if language.lower() == 'lvs':
+        return 'lv'
+
     if len(split[0]) == 2 and KODI_VERSION < 20:
         return split[0].lower()
 
@@ -719,9 +725,11 @@ def get_kodi_proxy():
 
     return proxy_address
 
+
 def unique(sequence):
     seen = set()
     return [x for x in sequence if not (x in seen or seen.add(x))]
+
 
 def get_url_headers(headers=None, cookies=None):
     string = ''
@@ -735,6 +743,7 @@ def get_url_headers(headers=None, cookies=None):
             string += u'{0}%3D{1}; '.format(key, quote(u'{}'.format(cookies[key]).encode('utf8')))
 
     return string.strip().strip('&')
+
 
 def get_headers_from_url(url):
     split = url.split('|')
