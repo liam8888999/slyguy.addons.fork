@@ -288,7 +288,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
 
             parse = urlparse(self.path.lower())
-
             if self._session.get('type') == 'm3u8' and (url == manifest or parse.path.endswith('.m3u') or parse.path.endswith('.m3u8') or response.headers.get('content-type') == 'application/x-mpegURL'):
                 self._parse_m3u8(response)
 
@@ -480,7 +479,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         def fix_default_kids(input_text):
             def format_kid(match):
                 kid = match.group(1)
-                formatted_kid = f"{kid[:8]}-{kid[8:12]}-{kid[12:16]}-{kid[16:20]}-{kid[20:]}"
+                formatted_kid = "{}-{}-{}-{}-{}".format(kid[:8], kid[8:12], kid[12:16], kid[16:20], kid[20:])
                 log.info('Dash Fix: Replaced default_KID {} -> {}'.format(kid, formatted_kid))
                 return ':default_KID="{}"'.format(formatted_kid)
             replaced_text = re.sub(DEFAULT_KID_PATTERN, format_kid, input_text)
@@ -505,46 +504,17 @@ class RequestHandler(BaseHTTPRequestHandler):
         mpd_attribs = list(mpd.attributes.keys())
 
         if mpd.getAttribute('type') == 'dynamic':
-            # Fix UTC timings
-            try:
-                seconds_diff = 0
-                utc = mpd.getElementsByTagName("UTCTiming")
-                publish_time = arrow.get(mpd.getAttribute('publishTime'))
-                if utc:
-                    utc_time = arrow.get(utc[0].getAttribute('value'))
-                    seconds_diff = max((utc_time - publish_time).total_seconds(), 0)
-                else:
-                    for elem in mpd.getElementsByTagName("SupplementalProperty"):
-                        if elem.getAttribute('schemeIdUri') == 'urn:scte:dash:utc-time':
-                            utc_time = arrow.get(elem.getAttribute('value'))
-                            seconds_diff = max((utc_time - publish_time).total_seconds(), 0)
-                            break
-
-                if seconds_diff > 0:
-                    seconds_diff += 10
-                    # Kodi 21+
-                    if KODI_VERSION > 20:
-                        mpd.setAttribute('suggestedPresentationDelay', 'PT{}S'.format(seconds_diff))
-                    else:
-                        avail = mpd.getAttribute('availabilityStartTime')
-                        if avail:
-                            avail_start = arrow.get(avail).shift(seconds=seconds_diff)
-                            mpd.setAttribute('availabilityStartTime', avail_start.format('YYYY-MM-DDTHH:mm:ss'+'Z'))
-            except:
-                pass
-
-            # Remove publishTime PR: https://github.com/xbmc/inputstream.adaptive/pull/564
-            if 'publishTime' in mpd_attribs:
-                mpd.removeAttribute('publishTime')
-                log.debug('Dash Fix: publishTime removed')
-
             # set maximum 4s update period
             existing = pthms_to_seconds(mpd.getAttribute('minimumUpdatePeriod')) or 4
             mpd.setAttribute('minimumUpdatePeriod', "PT{}S".format(min(existing, 4)))
 
             # set minimum 24s live delay
+            min_delay = 24
             existing = pthms_to_seconds(mpd.getAttribute('suggestedPresentationDelay')) or 0
-            mpd.setAttribute('suggestedPresentationDelay', 'PT{}S'.format(max(existing, 24)))
+            if existing < min_delay:
+                value = 'PT{}S'.format(min_delay)
+                log.debug('Dash Fix: Setting suggestedPresentationDelay to "{}"'.format(value))
+                mpd.setAttribute('suggestedPresentationDelay', value)
 
             # set minimum 16s buffer time
             existing = pthms_to_seconds(mpd.getAttribute('minBufferTime')) or 0
@@ -930,11 +900,11 @@ class RequestHandler(BaseHTTPRequestHandler):
             base_url_parents.append(elem.parentNode)
         ################
 
-        ## Convert Location
         if KODI_VERSION < 21:
             # wipe out manifest so not passed again
             self._session['manifest'] = None
 
+        ## Convert Location
         for elem in root.getElementsByTagName('Location'):
             url = elem.firstChild.nodeValue
             if '://' not in url:
@@ -1392,7 +1362,6 @@ class RequestHandler(BaseHTTPRequestHandler):
         for header in response.headers:
             if header.lower() not in REMOVE_OUT_HEADERS:
                 headers[header.lower()] = response.headers[header]
-
         response.headers = headers
 
         if 'location' in response.headers:
@@ -1409,7 +1378,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             ## we handle cookies in the requests session
             response.headers.pop('set-cookie')
 
-        self._middleware(url, response)
+        if response.ok and not self._session['redirecting']:
+            self._middleware(url, response)
 
         return response
 

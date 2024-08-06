@@ -262,6 +262,7 @@ class Bool(Setting):
 
 class Text(Setting):
     DEFAULT = ""
+
     def __init__(self, *args, **kwargs):
         self._input_type = kwargs.pop('input_type', xbmcgui.INPUT_ALPHANUM)
         super(Text, self).__init__(*args, **kwargs)
@@ -275,14 +276,34 @@ class Text(Setting):
         return value
 
 
+class Browse(Text):
+    DIRECTORY = 'directory'
+
+    def __init__(self, *args, **kwargs):
+        self._type = kwargs.pop('type')
+        self._source = kwargs.pop('source', '')
+        self._allow_create = kwargs.pop('allow_create', True)
+        self._use_default = kwargs.pop('use_default', True)
+        super(Browse, self).__init__(*args, **kwargs)
+
+    def select(self):
+        if self._type == Browse.DIRECTORY:
+            value = xbmcgui.Dialog().browse(3 if self._allow_create else 0, self._label, shares=self._source, defaultt=self.value if self._use_default else None)
+            if value:
+                self.value = value
+
+    def from_text(self, value):
+        return value
+
+
 class Action(Setting):
     _count = 0
 
-    def __init__(self, action, **kwargs):
-        self._action = action
-        kwargs['id'] = 'action_{}'.format(Action._count)
+    def __init__(self, action, *args, **kwargs):
+        self._action = action.replace('$ID', ADDON_ID)
+        id = 'action_{}'.format(Action._count)
         Action._count += 1
-        super(Action, self).__init__(**kwargs)
+        super(Action, self).__init__(id, *args, **kwargs)
 
     @property
     def label(self):
@@ -360,7 +381,7 @@ def migrate(settings):
 
     settings_path = os.path.join(ADDON_PROFILE, 'settings.xml')
     if BaseSettings.MIGRATED.value:
-        if remove_file(settings_path):
+        if os.path.exists(settings_path) and remove_file(settings_path):
             log.info("Removed old settings.xml: '{}'".format(settings_path))
         return
 
@@ -369,7 +390,7 @@ def migrate(settings):
         try:
             tree = ET.parse(settings_path)
             for elem in tree.findall('setting'):
-                if 'id' in elem.attrib and elem.attrib.get('default', 'false') != 'true':
+                if 'id' in elem.attrib:
                     value = elem.text or elem.attrib.get('value')
                     if value:
                         old_settings[elem.attrib['id']] = value
@@ -392,7 +413,7 @@ def migrate(settings):
                 setting = check
 
         if not setting:
-            log.info("Ignoring migrate of '{}' as no new setting found".format(key))
+            log.info("Migrate: Ignoring '{}' as no new setting found".format(key))
             continue
 
         try:
@@ -402,12 +423,12 @@ def migrate(settings):
 
             if value != setting._default:
                 setting._set_value(value)
-                log.info("Migrated '{}' -> '{}' -> '{}'".format(key, setting.id, value))
+                log.info("Migrate: '{}' -> '{}' -> '{}'".format(key, setting.id, value))
                 count += 1
             else:
-                log.info("Ignoring migrate of '{}' as is default value '{}'".format(setting.id, value))
+                log.info("Migrate: Ignoring '{}' as is default value '{}'".format(setting.id, value))
         except Exception as e:
-            log.error("Error migrating '{}' -> '{}' ({})".format(key, setting.id, e))
+            log.error("Migrate: Error '{}' -> '{}' ({})".format(key, setting.id, e))
 
     BaseSettings.MIGRATED.value = True
     log.info("{}/{} old settings have been migrated the new SlyGuy settings system!".format(count, len(old_settings)))
@@ -455,7 +476,7 @@ class BaseSettings(object):
 
         DBStorage.SETTINGS = self.SETTINGS
         if addon_id == ADDON_ID:
-            settings = [x for x in self.SETTINGS.values() if x.owner == addon_id]
+            settings = [x for x in self.SETTINGS.values() if x.owner == ADDON_ID]
             migrate(settings)
 
     def get_settings(self):
