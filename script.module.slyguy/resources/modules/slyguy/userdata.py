@@ -1,32 +1,18 @@
 from slyguy import settings
-from slyguy.constants import USERDATA_KEY
+from slyguy.settings.types import USERDATA_KEY_FMT
 
-
-def _get_data():
-    return settings.getDict(USERDATA_KEY, {})
 
 def get(key, default=None):
-    return _get_data().get(key, default)
+    return settings.get(USERDATA_KEY_FMT.format(key=key), default)
+
 
 def set(key, value):
-    data = _get_data()
-    data[key] = value
-    _set_data(data)
+    settings.set(USERDATA_KEY_FMT.format(key=key), value)
 
-def _set_data(data):
-    settings.setDict(USERDATA_KEY, data)
 
 def pop(key, default=None):
-    data = _get_data()
-    value = data.pop(key, default)
-    _set_data(data)
-    return value
+    return settings.pop(USERDATA_KEY_FMT.format(key=key), default)
+
 
 def delete(key):
-    data = _get_data()
-    if key in data:
-        del data[key]
-        _set_data(data)
-    
-def clear():
-    _set_data({})
+    settings.delete(USERDATA_KEY_FMT.format(key=key))

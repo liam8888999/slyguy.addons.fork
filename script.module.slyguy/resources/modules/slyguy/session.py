@@ -2,6 +2,7 @@ import json
 import socket
 import shutil
 import re
+import time
 import os
 import functools
 import random
@@ -114,7 +115,6 @@ class DNSResolver(dns.resolver.Resolver):
 class SessionAdapter(requests.adapters.HTTPAdapter):
     def __init__(self):
         self.session_data = {}
-        self._context_cache = {}
         super(SessionAdapter, self).__init__()
 
     def init_poolmanager(self, *args, **kwargs):
@@ -127,10 +127,15 @@ class SessionAdapter(requests.adapters.HTTPAdapter):
         return manager
 
     def connection_from_pool_key(self, func, pool_key, request_context):
-        if self.session_data['ssl_ciphers'] or self.session_data['ssl_options']:
-            context_key = (self.session_data['ssl_ciphers'], self.session_data['ssl_options'])
-            request_context['ssl_context'] = self._context_cache[context_key] = self._context_cache.get(context_key, requests.packages.urllib3.util.ssl_.create_urllib3_context(ciphers=self.session_data['ssl_ciphers'], options=self.session_data['ssl_options']))
-            pool_key = pool_key._replace(key_ssl_context=context_key)
+        # Creat our SSL context
+        request_context['ssl_context'] = requests.packages.urllib3.util.ssl_.create_urllib3_context(
+            ciphers=self.session_data['ssl_ciphers'],
+            options=self.session_data['ssl_options'],
+        )
+        #loads in any windows certstore certs (eg business proxy)
+        request_context['ssl_context'].load_default_certs()
+        # ensure unique pool (socket) for ssl cipher / options
+        pool_key = pool_key._replace(key_ssl_context=(self.session_data['ssl_ciphers'], self.session_data['ssl_options']))
 
         if self.session_data['interface_ip']:
             request_context['source_address'] = (self.session_data['interface_ip'], 0)
@@ -191,9 +196,11 @@ class SessionAdapter(requests.adapters.HTTPAdapter):
                 for address_family in families:
                     if not address_family:
                         continue
+
+                    start = time.time()
                     ips = resolver.resolve(host, family=address_family, interface_ip=self.session_data['interface_ip'])
                     if ips:
-                        log.debug('DNS Resolve: {} -> {} -> {}'.format(host, ', '.join(resolver.nameservers), ', '.join(ips)))
+                        log.debug('DNS Resolve: {} -> {} -> {} ({:.5f}s)'.format(host, ', '.join(resolver.nameservers), ', '.join(ips), time.time()-start))
                         return ips
 
             raise socket.gaierror('Unable to resolve host: {} using ip mode: {}'.format(host, self.session_data['ip_mode']))
@@ -243,12 +250,12 @@ class RawSession(requests.Session):
 
     def set_dns_rewrites(self, rewrites):
         for entries in rewrites:
-            pattern = entries.pop()
-            pattern = re.escape(pattern).replace('\*', '.*')
+            pattern = entries[-1]
+            pattern = re.escape(pattern).replace(r'\*', '.*')
             pattern = re.compile(pattern, flags=re.IGNORECASE)
 
             new_entries = []
-            for entry in entries:
+            for entry in entries[:-1]:
                 _type = 'skip'
                 if entry.startswith('p:'):
                     _type = 'proxy'
@@ -397,19 +404,19 @@ class RawSession(requests.Session):
 
 class Session(RawSession):
     def __init__(self, headers=None, cookies_key=None, base_url='{}', timeout=None, attempts=None, verify=None, dns_rewrites=None, auto_close=True, return_json=False, **kwargs):
-        super(Session, self).__init__(verify=settings.common_settings.getBool('verify_ssl', True) if verify is None else verify,
-            timeout=settings.common_settings.getInt('http_timeout', 30) if timeout is None else timeout, auto_close=auto_close, ip_mode=settings.common_settings.IP_MODE.value, **kwargs)
+        super(Session, self).__init__(verify=settings.getBool('verify_ssl', True) if verify is None else verify,
+            timeout=settings.getInt('http_timeout', 30) if timeout is None else timeout, auto_close=auto_close, ip_mode=settings.IP_MODE.value, **kwargs)
 
         self._headers = headers or {}
         self._cookies_key = cookies_key
         self._base_url = base_url
-        self._attempts = settings.common_settings.getInt('http_retries', 1) if attempts is None else attempts
+        self._attempts = settings.getInt('http_retries', 1) if attempts is None else attempts
         self._return_json = return_json
         self.before_request = None
         self.after_request = None
 
         self.set_dns_rewrites(get_dns_rewrites() if dns_rewrites is None else dns_rewrites)
-        self.set_proxy(settings.get('proxy_server') or settings.common_settings.get('proxy_server'))
+        self.set_proxy(settings.get('proxy_server') or settings.get('proxy_server'))
 
         self.headers.update(DEFAULT_HEADERS)
         self.headers.update(self._headers)

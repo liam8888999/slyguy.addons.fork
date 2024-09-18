@@ -1,15 +1,19 @@
 import os
 import json
 import xml.etree.ElementTree as ET
+from copy import deepcopy
 
 from kodi_six import xbmc, xbmcgui
 
 from slyguy import dialog, log, signals
 from slyguy.util import remove_file
-from slyguy.language import _, BaseLanguage
-from slyguy.constants import ADDON_ID, COMMON_ADDON_ID, NEW_SETTINGS, ADDON_PROFILE, ADDON_NAME, COMMON_ADDON
+from slyguy.language import _
+from slyguy.constants import ADDON_ID, COMMON_ADDON_ID, ADDON_PROFILE, ADDON_NAME, COMMON_ADDON
 
 from slyguy.settings.db_storage import DBStorage
+
+
+USERDATA_KEY_FMT = "userdata_{key}"
 
 
 class Category(object):
@@ -38,7 +42,7 @@ class Category(object):
 
     @property
     def settings(self):
-        return sorted([x for x in self.children if isinstance(x, Setting)], key=lambda s: s._owner == ADDON_ID, reverse=True)
+        return sorted([x for x in self.children if isinstance(x, Setting)], key=lambda s: (s._owner == ADDON_ID, -s._order), reverse=True)
 
     @property
     def categories(self):
@@ -67,10 +71,11 @@ USE_DEFAULT = object()
 STORAGE = DBStorage()
 class Setting(object):
     DEFAULT = None
+    ORDER = 0
 
     def __init__(self, id, label=None, owner=ADDON_ID, default=USE_DEFAULT, visible=True, enable=True, disabled_value=USE_DEFAULT, disabled_reason=None, 
                  override=True, before_save=lambda _: True, default_label=None, inherit=True, category=None, value_str='{value}',
-                 confirm_clear=False, after_clear=lambda: True, legacy_ids=None, after_save=lambda _: True, description=None, private_value=False):
+                 confirm_clear=False, after_clear=lambda: True, legacy_ids=None, after_save=lambda _: True, description=None, private_value=False, order=None):
         self._id = str(id)
         self._label = label
         self._owner = owner
@@ -91,6 +96,8 @@ class Setting(object):
         self._after_clear = after_clear
         self._legacy_ids = legacy_ids or []
         self._description = description
+        self._order = order if order is not None else Setting.ORDER
+        Setting.ORDER += 1
         if not category:
             category = Categories.ADDON if owner != COMMON_ADDON_ID else Categories.ROOT
         category.add(self)
@@ -127,7 +134,7 @@ class Setting(object):
     @property
     def value(self):
         value = self._get_value_owner()[1]
-        return self._default if value == DBStorage.NO_ENTRY else value
+        return deepcopy(self._default) if value == DBStorage.NO_ENTRY else value
 
     @value.setter
     def value(self, value):
@@ -165,7 +172,7 @@ class Setting(object):
     def label(self):
         owner, value = self._get_value_owner()
         if value == DBStorage.NO_ENTRY:
-            value = self._default
+            value = deepcopy(self._default)
 
         if value == self._default and self._default_label:
             value = self._default_label
@@ -232,8 +239,8 @@ class Setting(object):
             return
 
         prev_value = self._get_value_owner()
-        self.select()
-        if self._get_value_owner() != prev_value:
+        value = self.select()
+        if value or self._get_value_owner() != prev_value:
             return True
 
     def from_text(self, value):
@@ -242,6 +249,10 @@ class Setting(object):
 
 class Dict(Setting):
     DEFAULT = {}
+
+
+class List(Setting):
+    DEFAULT = []
 
 
 class Bool(Setting):
@@ -300,7 +311,8 @@ class Action(Setting):
     _count = 0
 
     def __init__(self, action, *args, **kwargs):
-        self._action = action.replace('$ID', ADDON_ID)
+        self._action = action
+        self._confirm_action = kwargs.pop('confirm_action', False)
         id = 'action_{}'.format(Action._count)
         Action._count += 1
         super(Action, self).__init__(id, *args, **kwargs)
@@ -313,11 +325,21 @@ class Action(Setting):
         return value
 
     def select(self):
+        message = _.ARE_YOU_SURE
+        if not type(self._confirm_action) == bool:
+            message = self._confirm_action
+
+        if self._confirm_action and not dialog.yes_no(message, self._label):
+            return
+
         value = self._action
         if callable(value):
             value = value()
         if isinstance(value, str):
+            value = value.replace('$ID', ADDON_ID)
             xbmc.executebuiltin(value)
+        if value == True:
+            return True
 
 
 class Number(Setting):
@@ -376,11 +398,8 @@ class Enum(Setting):
 
 
 def migrate(settings):
-    if not NEW_SETTINGS:
-        return
-
     settings_path = os.path.join(ADDON_PROFILE, 'settings.xml')
-    if BaseSettings.MIGRATED.value:
+    if settings.MIGRATED.value:
         if os.path.exists(settings_path) and remove_file(settings_path):
             log.info("Removed old settings.xml: '{}'".format(settings_path))
         return
@@ -403,12 +422,14 @@ def migrate(settings):
         'pagination_multiplier': 1,
     }
 
+    new_settings = [x for x in settings.SETTINGS.values() if x.owner == ADDON_ID]
+
     count = 0
     for key in old_settings:
         xml_val = old_settings[key]
 
         setting = None
-        for check in settings:
+        for check in new_settings:
             if check.matches_id(key):
                 setting = check
 
@@ -434,20 +455,43 @@ def migrate(settings):
     log.info("{}/{} old settings have been migrated the new SlyGuy settings system!".format(count, len(old_settings)))
 
 
+def migrate_userdata(settings):
+    legacy_userdata = settings.USERDATA.value
+    if not legacy_userdata:
+        return
+
+    for key in legacy_userdata:
+        value = legacy_userdata[key]
+        if not value:
+            continue
+
+        new_key = USERDATA_KEY_FMT.format(key=key)
+        log.info("Migrate Userdata: '{}' -> '{}'".format(key, new_key))
+        settings.set(new_key, value=value)
+
+    settings.USERDATA.clear()
+    log.info("Migrated Userdata")
+
+
+def reset_addon():
+    STORAGE.delete_all(ADDON_ID)
+    from slyguy import gui
+    gui.notification(_.PLUGIN_RESET_OK)
+    return True
+
+
 class BaseSettings(object):
     MIGRATED = Bool('migrated', visible=False, override=False, inherit=False)
-    USERDATA = Dict('userdata', visible=False, override=False, inherit=False)
-
+    USERDATA = Dict('userdata', visible=False, override=False, inherit=False) #LEGACY
+    BOOKMARKS_DATA = List('bookmarks_data', visible=False, override=False, inherit=False)
+    RESET_ADDON = Action(reset_addon, confirm_action=_.PLUGIN_RESET_YES_NO, order=float('inf'))
     SETTINGS = {}
-    CLASSES = {}
 
     def __init__(self, addon_id=ADDON_ID):
-        # force default labels from common language only
-        self.language = BaseLanguage(COMMON_ADDON)
-        self.CLASSES[self.__class__] = addon_id
-        self._load_settings(addon_id)
+        self._load_settings()
+        self._migrated = False
 
-    def _load_settings(self, addon_id, attr_used={}):
+    def _load_settings(self, attr_used={}):
         for cls in self.__class__.mro():
             if cls is object:
                 continue
@@ -469,15 +513,10 @@ class BaseSettings(object):
 
                 if setting._label is None:
                     # try get matching language
-                    setting._label = getattr(self.language, name, name.upper())
+                    setting._label = getattr(_, name, name.upper())
 
                 attr_used[name] = cls
                 self.SETTINGS[setting.id] = setting
-
-        DBStorage.SETTINGS = self.SETTINGS
-        if addon_id == ADDON_ID:
-            settings = [x for x in self.SETTINGS.values() if x.owner == ADDON_ID]
-            migrate(settings)
 
     def get_settings(self):
         return [self.SETTINGS[x] for x in self.SETTINGS]
@@ -495,18 +534,26 @@ class BaseSettings(object):
 
     def remove(self, key):
         self.get_setting(key).clear()
+    delete = remove
+
+    def pop(self, key, default=None):
+        value = self.get(key, default)
+        self.remove(key)
+        return value
 
     def get_setting(self, key, default=None):
+        if not self._migrated:
+            self._migrated = True
+            migrate(self)
+            migrate_userdata(self)
+
         for setting in self.SETTINGS.values():
             if setting.matches_id(key):
                 return setting
 
-        owner = self.CLASSES[self.__class__]
-        setting = Dict(key, owner=owner, default=default, override=False, inherit=False, visible=False)
-        setting._label = getattr(self.language, key, key.upper())
+        setting = Dict(key, owner=ADDON_ID, default=default, override=False, inherit=False, visible=False)
         self.SETTINGS[key] = setting
-        # setting will be deleted on next load
-        log.warning("Setting '{}' not found. Created on-the-fly.".format(key))
+        log.debug("Setting '{}' not found. Created on-the-fly.".format(key))
         return setting
 
     def reset(self):

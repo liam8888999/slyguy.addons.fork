@@ -10,12 +10,12 @@ from xml.dom.minidom import parseString
 from functools import cmp_to_key
 
 import arrow
-from requests import ConnectionError
 from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.socketserver import ThreadingMixIn
 from six.moves.urllib.parse import urlparse, urljoin, unquote_plus, parse_qsl
 from kodi_six import xbmc
 from pycaption import detect_format, WebVTTWriter
+from requests.cookies import RequestsCookieJar
 
 from slyguy import gui, settings, log, _
 from slyguy.constants import *
@@ -41,8 +41,8 @@ CODECS = [
     ['av0?1', 'AV1'],
     ['hdr', HDR],
     ['dvh', DOLBY_VISION],
-    ['vp0?9\.0?2', 'VP9 HDR'],
-    ['av0?1.*09\.16\.09\.0', 'AV1 HDR'],
+    [r'vp0?9\.0?2', 'VP9 HDR'],
+    [r'av0?1.*09\.16\.09\.0', 'AV1 HDR'],
 ]
 CODECS = [[re.compile(x[0], re.IGNORECASE), x[1]] for x in CODECS]
 
@@ -55,6 +55,12 @@ PROXY_GLOBAL = {
     'sessions': {},
     'error_count': 0,
 }
+
+
+class Redirect(Exception):
+    def __init__(self, url):
+        self.url = url
+
 
 def middleware_regex(response, pattern, **kwargs):
     data = response.stream.content.decode('utf8')
@@ -157,7 +163,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                     'addon_id': session_addonid,
                     'verify': settings.getBool('verify_ssl', True),
                     'timeout': settings.getInt('http_timeout', 30),
-                    'ip_mode': settings.common_settings.IP_MODE.value,
+                    'ip_mode': settings.IP_MODE.value,
                     'dns_rewrites': get_dns_rewrites(addon_id=session_addonid),
                     'proxy_server': settings.get('proxy_server'),
                 }
@@ -165,18 +171,23 @@ class RequestHandler(BaseHTTPRequestHandler):
         else:
             session_type = DEFAULT_SESSION_NAME
             self._session = PROXY_GLOBAL['sessions'].get(session_type) or {}
-            try:
-                proxy_data = json.loads(get_kodi_string('_slyguy_proxy_data'))
-                set_kodi_string('_slyguy_proxy_data', '')
 
-                if self._session.get('session_id') != proxy_data['session_id']:
+            proxy_data = get_kodi_string('_slyguy_proxy_data')
+            if proxy_data:
+                set_kodi_string('_slyguy_proxy_data', '')
+                proxy_data = json.loads(proxy_data)
+
+                if self._session.get('session_id', 0) != proxy_data.get('session_id', 1):
                     self._session = {}
 
                 if not self._session:
                     log.debug('Session created from proxy data')
                     self._session.update(proxy_data)
-            except:
-                pass
+
+                    self._session['cookie_jar'] = RequestsCookieJar()
+                    # re-load any previous saved cookies
+                    self._session['cookie_jar'].update(self._session.pop('cookies', {}))
+
         PROXY_GLOBAL['sessions'][session_type] = self._session
 
         # must remove content-length header as the length can change once we read it / resend it
@@ -293,6 +304,11 @@ class RequestHandler(BaseHTTPRequestHandler):
 
             elif self._session.get('type') == 'mpd' and url == manifest:
                 self._parse_dash(response)
+        except Redirect as e:
+            log.info('Redirecting to: {}'.format(e.url))
+            response.status_code = 302
+            response.headers['location'] = e.url
+            response.stream.content = b''
         except Exception as e:
             log.exception(e)
 
@@ -386,12 +402,10 @@ class RequestHandler(BaseHTTPRequestHandler):
             if self._session['selected_quality'] == QUALITY_EXIT:
                 raise Exit('Cancelled quality select')
 
-            if self._session['selected_quality'] in (QUALITY_DISABLED, QUALITY_SKIP):
+            if self._session['selected_quality'] == QUALITY_SKIP:
                 return None
             else:
                 return qualities[self._session['selected_quality']]
-
-        quality = int(self._session.get('quality', QUALITY_ASK))
 
         quality_compare = cmp_to_key(compare)
         streams = sorted(qualities, key=quality_compare, reverse=True)
@@ -400,8 +414,14 @@ class RequestHandler(BaseHTTPRequestHandler):
         not_compatible = [x for x in streams if not x['compatible']]
         not_res_ok = [x for x in streams if not x['res_ok'] and x not in not_compatible]
 
+        quality = int(self._session.get('quality', QUALITY_SKIP))
+
+        # custom quality is always required
+        if self._session.get('custom_quality') and quality == QUALITY_SKIP:
+            quality = QUALITY_ASK
+
         if not streams:
-            quality = QUALITY_DISABLED
+            quality = QUALITY_SKIP
         elif len(streams) < 2:
             quality = QUALITY_BEST
 
@@ -420,7 +440,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             for x in not_compatible:
                 options.append([x, _stream_label(x)])
 
-            options.append([QUALITY_SKIP, _.QUALITY_SKIP])
+            if not self._session.get('custom_quality'):
+                options.append([QUALITY_SKIP, _.QUALITY_SKIP])
 
             values = [x[0] for x in options]
             labels = [x[1] for x in options]
@@ -438,7 +459,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                             continue
 
             log.debug('CHOOSE QUALITY')
-            index = gui.select(_.PLAYBACK_QUALITY, labels, preselect=default, autoclose=5000)
+            index = gui.select(_.SELECT_QUALITY, labels, preselect=default, autoclose=5000)
             if index < 0:
                 self._session['selected_quality'] = QUALITY_EXIT
                 raise Exit('Cancelled quality select')
@@ -452,7 +473,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             PROXY_GLOBAL['last_qualities'].insert(0, [self._session['slug'], quality])
             PROXY_GLOBAL['last_qualities'] = PROXY_GLOBAL['last_qualities'][:MAX_QUALITY_HISTORY]
 
-        if quality in (QUALITY_DISABLED, QUALITY_SKIP):
+        if quality == QUALITY_SKIP:
             pass
         elif quality == QUALITY_BEST:
             quality = streams[0]
@@ -502,30 +523,11 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         mpd = root.getElementsByTagName("MPD")[0]
         mpd_attribs = list(mpd.attributes.keys())
-
-        if mpd.getAttribute('type') == 'dynamic':
-            # set maximum 4s update period
-            existing = pthms_to_seconds(mpd.getAttribute('minimumUpdatePeriod')) or 4
-            mpd.setAttribute('minimumUpdatePeriod', "PT{}S".format(min(existing, 4)))
-
-            # set minimum 24s live delay
-            min_delay = 24
-            existing = pthms_to_seconds(mpd.getAttribute('suggestedPresentationDelay')) or 0
-            if existing < min_delay:
-                value = 'PT{}S'.format(min_delay)
-                log.debug('Dash Fix: Setting suggestedPresentationDelay to "{}"'.format(value))
-                mpd.setAttribute('suggestedPresentationDelay', value)
-
-            # set minimum 16s buffer time
-            existing = pthms_to_seconds(mpd.getAttribute('minBufferTime')) or 0
-            mpd.setAttribute('minBufferTime', 'PT{}S'.format(max(existing, 16)))
-
-            ## Fix mpd overalseconds bug issue: https://github.com/xbmc/inputstream.adaptive/issues/731 / https://github.com/xbmc/inputstream.adaptive/pull/881     
-            if 'timeShiftBufferDepth' not in mpd_attribs and 'mediaPresentationDuration' not in mpd_attribs:
-                buffer_seconds = (arrow.now() - arrow.get(mpd.getAttribute('availabilityStartTime'))).total_seconds()
-                mpd.setAttribute('mediaPresentationDuration', 'PT{}S'.format(buffer_seconds))
-                log.debug('Dash Fix: {}S mediaPresentationDuration added'.format(buffer_seconds))
-
+        # ## Fix mpd overalseconds bug issue: https://github.com/xbmc/inputstream.adaptive/issues/731 / https://github.com/xbmc/inputstream.adaptive/pull/881
+        if KODI_VERSION < 21 and mpd.getAttribute('type') == 'dynamic' and 'timeShiftBufferDepth' not in mpd_attribs and 'mediaPresentationDuration' not in mpd_attribs:
+            buffer_seconds = (arrow.now() - arrow.get(mpd.getAttribute('availabilityStartTime'))).total_seconds()
+            mpd.setAttribute('mediaPresentationDuration', 'PT{}S'.format(buffer_seconds))
+            log.debug('Dash Fix: {}S mediaPresentationDuration added'.format(buffer_seconds))
 
         ## SORT ADAPTION SETS BY BITRATE ##
         video_sets = []
@@ -698,9 +700,6 @@ class RequestHandler(BaseHTTPRequestHandler):
 
                         stream_data['codec'] = codec_string
 
-                        # if not stream_data['compatible']:
-                        #     continue
-
                         all_streams[period_index].append(stream_data)
 
                     # add rep to end of adap set
@@ -734,6 +733,12 @@ class RequestHandler(BaseHTTPRequestHandler):
             for period_index in all_streams:
                 for stream in sorted(all_streams[period_index], key=lambda x: (x == selected, x['compatible'] == selected['compatible'], x['codec'] == selected['codec'], x['bandwidth'] <= selected['bandwidth'], x['bandwidth']))[:-1]:
                     stream['elem'].parentNode.removeChild(stream['elem'])
+        elif any(x['compatible'] and x['res_ok'] for x in all_streams[0]):
+            # skip quality, remove non-ok streams
+            for period_index in all_streams:
+                for stream in all_streams[period_index]:
+                    if not stream['compatible'] or not stream['res_ok']:
+                        stream['elem'].parentNode.removeChild(stream['elem'])
 
         video_sets.sort(key=lambda  x: x[0], reverse=True)
         audio_sets.sort(key=lambda  x: x[0], reverse=True)
@@ -902,6 +907,8 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         if KODI_VERSION < 21:
             # wipe out manifest so not passed again
+            # Kodi 21 and up need to set mpd attribs again otherwise IA gets confused
+            # with missing reps
             self._session['manifest'] = None
 
         ## Convert Location
@@ -1139,10 +1146,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                 if not h265_enabled and codec_string == H265:
                     stream_data['compatible'] = False
 
-                # if not stream_data['compatible']:
-                #     stream_inf = None
-                #     continue
-
                 if stream_data['url'] not in urls and stream_inf not in metas:
                     streams.append(stream_data)
                     urls.append(stream_data['url'])
@@ -1157,9 +1160,19 @@ class RequestHandler(BaseHTTPRequestHandler):
         # select quality
         selected = self._quality_select(streams)
         if selected:
+            if self._session.get('custom_quality'):
+                raise Redirect(selected['full_url'])
+
             adjust = 0
             for stream in all_streams:
                 if stream['full_url'] != selected['full_url']:
+                    video.pop(stream['index']-adjust)
+                    adjust += 1
+        elif any(x['compatible'] and x['res_ok'] for x in all_streams):
+            # skip quality, remove non-ok streams
+            adjust = 0
+            for stream in all_streams:
+                if not stream['compatible'] or not stream['res_ok']:
                     video.pop(stream['index']-adjust)
                     adjust += 1
 
@@ -1321,41 +1334,29 @@ class RequestHandler(BaseHTTPRequestHandler):
             with open(xbmc.translatePath('special://temp/request.data'), 'wb') as f:
                 f.write(self._post_data)
 
-        if not self._session.get('session'):
-            self._session['session'] = RawSession(
-                verify = self._session.get('verify'),
-                timeout = self._session.get('timeout'),
-                ip_mode = self._session.get('ip_mode'),
-                auto_close = False,
-            )
-            self._session['session'].set_dns_rewrites(self._session.get('dns_rewrites', []))
-            self._session['session'].set_proxy(self._session.get('proxy_server'))
-            self._session['session'].set_cert(self._session.get('cert'))
-            self._session['session'].cookies.update(self._session.pop('cookies', {}))
-        else:
-            self._session['session'].headers.clear()
-            #self._session['session'].cookies.clear() #lets handle cookies in session
-
         ## Fix any double // in url
         url = fix_url(url)
 
-        retries = 3
-        # some reason we get connection errors every so often when using a session. something to do with the socket
-        for i in range(retries):
-            log.debug('REQUEST OUT: {} ({})'.format(url, method.upper()))
-            try:
-                response = self._session['session'].request(method=method, url=url, headers=self._headers, data=self._post_data, allow_redirects=False, stream=True)
-            except ConnectionError as e:
-                if 'Connection aborted' not in str(e) or i == retries-1:
-                    log.exception(e)
-                    raise
-            except Exception as e:
-                log.exception(e)
-                raise
-            else:
-                log.debug('RESPONSE IN: {} ({})'.format(url, response.status_code))
-                break
+        session = RawSession(
+            verify = self._session.get('verify'),
+            timeout = self._session.get('timeout'),
+            ip_mode = self._session.get('ip_mode'),
+        )
+        session.set_dns_rewrites(self._session.get('dns_rewrites', []))
+        session.set_proxy(self._session.get('proxy_server'))
+        session.set_cert(self._session.get('cert'))
+        if 'cookie_jar' in self._session:
+            session.cookies = self._session['cookie_jar']
 
+        log.debug('REQUEST OUT: {} ({})'.format(url, method.upper()))
+        try:
+            with session as s:
+                response = s.request(method=method, url=url, headers=self._headers, data=self._post_data, allow_redirects=False, stream=True)
+        except Exception as e:
+            log.exception(e)
+            raise
+
+        log.debug('RESPONSE IN: {} ({})'.format(url, response.status_code))
         response.stream = ResponseStream(response)
 
         headers = {}
@@ -1375,7 +1376,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         if 'set-cookie' in response.headers:
             log.debug('set-cookie: {}'.format(response.headers['set-cookie']))
-            ## we handle cookies in the requests session
+            ## we handle cookies in the cookiejar
             response.headers.pop('set-cookie')
 
         if response.ok and not self._session['redirecting']:
@@ -1452,6 +1453,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
 class Response(object):
     def __init__(self):
+        self.url = ''
         self.headers = {}
         self.status_code = 200
         self.content = b''
@@ -1498,21 +1500,23 @@ class ResponseStream(object):
 
                 yield chunk
 
+
 def save_session():
     # persist session across service restarts
     session = PROXY_GLOBAL['sessions'].get(DEFAULT_SESSION_NAME)
     if not session:
         return
 
-    requests_session = session.pop('session', None)
-    if requests_session:
-        session['cookies'] = requests_session.cookies.get_dict()
+    if 'cookie_jar' in session:
+        session['cookies'] = session.pop('cookie_jar').get_dict()
 
     set_kodi_string('_slyguy_proxy_data', json.dumps(session))
     log.debug('Session saved')
 
+
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
+
 
 class Proxy(object):
     started = False
@@ -1521,7 +1525,7 @@ class Proxy(object):
         if self.started:
             return
 
-        target_port = settings.common_settings.getInt('_proxy_port') or DEFAULT_PORT
+        target_port = settings.getInt('_proxy_port') or DEFAULT_PORT
         port = check_port(target_port)
         if not port:
             port = check_port()
@@ -1530,7 +1534,7 @@ class Proxy(object):
                 return
 
             log.warning('Port {} not available. Switched to port {}'.format(target_port, port))
-            settings.common_settings.setInt('_proxy_port', port)
+            settings.setInt('_proxy_port', port)
 
         self._server = ThreadedHTTPServer((HOST, port), RequestHandler)
         self._server.allow_reuse_address = True
@@ -1539,7 +1543,7 @@ class Proxy(object):
         self.started = True
 
         proxy_path = 'http://{}:{}/'.format(HOST, port)
-        settings.common_settings.set('_proxy_path', proxy_path)
+        settings.set('_proxy_path', proxy_path)
         log.info("Proxy Started: {}".format(proxy_path))
 
     def stop(self):
@@ -1558,5 +1562,5 @@ class Proxy(object):
             log.error('Failed to save proxy session')
             log.exception(e)
 
-        settings.common_settings.set('_proxy_path', '')
+        settings.set('_proxy_path', '')
         log.debug("Proxy: Stopped")

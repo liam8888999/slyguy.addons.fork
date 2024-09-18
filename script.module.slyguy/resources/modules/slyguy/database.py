@@ -7,7 +7,7 @@ from six.moves import cPickle
 
 from slyguy import signals
 from slyguy.log import log
-from slyguy.util import hash_6
+from slyguy.util import hash_6, makedirs
 from slyguy.constants import DB_PATH, DB_PRAGMAS, DB_TABLENAME, ADDON_DEV
 
 
@@ -24,23 +24,24 @@ class HashField(peewee.TextField):
 
 
 class PickleField(peewee.BlobField):
+    def db_value(self, value):
+        pickled = cPickle.dumps(value)
+        return self._constructor(pickled)
+
     def python_value(self, value):
+        # value can be None when doing joins
         if value is not None:
             if isinstance(value, peewee.buffer_type):
                 value = bytes(value)
             return cPickle.loads(value)
 
-    def db_value(self, value):
-        if value is not None:
-            pickled = cPickle.dumps(value)
-            return self._constructor(pickled)
 
 class JSONField(peewee.TextField):
     def db_value(self, value):
-        if value is not None:
-            return json.dumps(value, ensure_ascii=False)
+        return json.dumps(value, ensure_ascii=False)
 
     def python_value(self, value):
+        # value can be None when doing joins
         if value is not None:
             return json.loads(value)
 
@@ -176,11 +177,7 @@ class Database(peewee.SqliteDatabase):
         if os.path.exists(self.database):
             return super(Database, self).connect(*args, **kwargs)
 
-        try:
-            os.makedirs(os.path.dirname(self.database))
-        except FileExistsError:
-            pass
-
+        makedirs(os.path.dirname(self.database))
         timeout = time.time() + 5
         result = False
         exception = ''
@@ -201,6 +198,5 @@ class Database(peewee.SqliteDatabase):
 
 
 def init(tables=None, db_path=DB_PATH):
-    if db_path not in DBS:
-        DBS[db_path] = Database(db_path, pragmas=DB_PRAGMAS, timeout=10, autoconnect=True, tables=tables)
-    return DBS[db_path]
+    db = DBS[db_path] = Database(db_path, pragmas=DB_PRAGMAS, timeout=10, autoconnect=True, tables=tables)
+    return db

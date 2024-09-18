@@ -38,9 +38,7 @@ def format_string(string, *args, **kwargs):
 
 
 def addon_string(id, addon=ADDON):
-    if id >= 32000:
-        string = COMMON_ADDON.getLocalizedString(id)
-    elif id >= 30000:
+    if id >= 30000:
         string = addon.getLocalizedString(id)
     else:
         string = xbmc.getLocalizedString(id)
@@ -83,7 +81,7 @@ class BaseLanguage(object):
     IA_ERROR_INSTALLING         = 32016
     USE_CACHE                   = 32017
     INPUTSTREAM_SETTINGS        = 32018
-    CLEAR_DATA                  = 32019
+    RESET_ADDON                 = 32019
     PLUGIN_ERROR                = 32020
     IA_WV_INSTALL_OK            = 32022
     LOGIN                       = 32024
@@ -94,7 +92,7 @@ class BaseLanguage(object):
     SEARCH                      = 32029
     SEARCH_FOR                  = 32030
     NO_RESULTS                  = 32031
-    PLUGIN_EXCEPTION            = 32032
+    UNEXPECTED_ERROR            = 32032
     ERROR_DOWNLOADING_FILE      = 32033
     VERIFY_SSL                  = 32037
     SELECT_IA_VERSION           = 32038
@@ -106,7 +104,6 @@ class BaseLanguage(object):
     HTTP_TIMEOUT                = 32044
     HTTP_RETRIES                = 32045
     IA_WEBOS_ERROR              = 32046
-    DISABLE_DNS_OVERRIDES       = 32047
     QUALITY_SKIP                = 32048
     NO_AUTOPLAY_FOUND           = 32049
     CONFIRM_MIGRATE             = 32050
@@ -114,7 +111,7 @@ class BaseLanguage(object):
     NO_ERROR_MSG                = 32052
     MULTI_BASEURL_WARNING       = 32053
     QUALITY_CUSTOM              = 32054
-    QUALITY_ASK                 = 32055
+    QUALITY_ASK = ASK = PLAY_FROM_ASK = 32055
     QUALITY_PARSE_ERROR         = 32056
     QUALITY_BAD_M3U8            = 32057
     WV_INSTALLED                = 32058
@@ -124,7 +121,6 @@ class BaseLanguage(object):
     LIVE_PLAY_TYPE              = 32063
     PLAY_FROM_START             = 32064
     PLAY_FROM_LIVE              = 32065
-    PLAY_FROM_ASK               = 32066
     PLAY_FROM                   = 32067
     QUALITY_BITRATE             = 32068
     QUALITY_FPS                 = 32069
@@ -312,9 +308,22 @@ class BaseLanguage(object):
     TRAILER_CONTEXT_MENU        = 32221
     NOT_SET                     = 32222
 
-    def __init__(self, addon=ADDON):
-        self._addon = addon
-    
+    def __init__(self):
+        self._addon_map = {}    
+        for cls in self.__class__.mro():
+            if cls is object:
+                continue
+
+            if cls != BaseLanguage:
+                addon = ADDON
+            else:
+                addon = COMMON_ADDON
+
+            for name in cls.__dict__:
+                val = cls.__dict__[name]
+                if isinstance(val, int) and val not in self._addon_map:
+                    self._addon_map[val] = addon
+
     def __getattr__(self, name):
        # raise Exception("{} missing".format(name))
         return str(name)
@@ -324,13 +333,13 @@ class BaseLanguage(object):
         if not isinstance(attr, int):
             return attr
 
-        return addon_string(attr, self._addon)
+        return addon_string(attr, self._addon_map.get(attr, ADDON))
 
-    def __call__(self, string, *args, **kwargs):
-        if isinstance(string, int):
-            string = addon_string(string, self._addon)
+    def __call__(self, attr, *args, **kwargs):
+        if isinstance(attr, int):
+            attr = addon_string(attr, self._addon_map.get(attr, ADDON))
 
-        return format_string(string, *args, **kwargs)
+        return format_string(attr, *args, **kwargs)
 
 
 _ = BaseLanguage()

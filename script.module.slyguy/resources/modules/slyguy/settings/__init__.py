@@ -3,15 +3,13 @@ import re
 from time import time
 
 from slyguy import dialog
-from slyguy.language import BaseLanguage
+from slyguy.language import _
 from slyguy.log import log
 from slyguy.constants import *
 from slyguy.util import get_kodi_string, set_kodi_string
 
 from .types import BaseSettings, Bool, Dict, Number, Text, Enum, Categories, Action
 
-
-_ = BaseLanguage(COMMON_ADDON)
 
 WV_AUTO = -1
 WV_L1 = 1
@@ -227,16 +225,16 @@ class CommonSettings(BaseSettings):
     QUALITY_MODE = Enum('quality_mode', legacy_ids=['default_quality'], label=_.QUALITY_SELECT_MODE, default=QUALITY_ASK, disabled_value=QUALITY_SKIP, enable=is_donor, disabled_reason=_.SUPPORTER_ONLY,
         options=[[_.QUALITY_ASK, QUALITY_ASK], [_.QUALITY_BEST, QUALITY_BEST], [_.QUALITY_LOWEST, QUALITY_LOWEST], [_.QUALITY_SKIP, QUALITY_SKIP]],
         owner=COMMON_ADDON_ID, category=Categories.PLAYER_QUALITY)
-    MAX_BANDWIDTH = Number('max_bandwidth', default_label=_.NO_LIMIT, owner=COMMON_ADDON_ID, visible=lambda: CommonSettings.QUALITY_MODE.value != QUALITY_SKIP, category=Categories.PLAYER_QUALITY)
-    MAX_WIDTH = Number('max_width', default_label=_.NO_LIMIT, owner=COMMON_ADDON_ID, visible=lambda: CommonSettings.QUALITY_MODE.value != QUALITY_SKIP, category=Categories.PLAYER_QUALITY)
-    MAX_HEIGHT = Number('max_height', default_label=_.NO_LIMIT, owner=COMMON_ADDON_ID, visible=lambda: CommonSettings.QUALITY_MODE.value != QUALITY_SKIP, category=Categories.PLAYER_QUALITY)
-    IGNORE_DISPLAY_RESOLUTION = Bool('ignore_display_resolution', default=True, owner=COMMON_ADDON_ID, visible=lambda: CommonSettings.QUALITY_MODE.value != QUALITY_SKIP, category=Categories.PLAYER_QUALITY)
+    MAX_BANDWIDTH = Number('max_bandwidth', default_label=_.NO_LIMIT, owner=COMMON_ADDON_ID, category=Categories.PLAYER_QUALITY)
+    MAX_WIDTH = Number('max_width', default_label=_.NO_LIMIT, owner=COMMON_ADDON_ID, category=Categories.PLAYER_QUALITY)
+    MAX_HEIGHT = Number('max_height', default_label=_.NO_LIMIT, owner=COMMON_ADDON_ID, category=Categories.PLAYER_QUALITY)
+    IGNORE_DISPLAY_RESOLUTION = Bool('ignore_display_resolution', default=True, owner=COMMON_ADDON_ID, category=Categories.PLAYER_QUALITY)
 
     # PLAYER / CODECS
     H265 = Bool('h265', default=True, owner=COMMON_ADDON_ID, category=Categories.PLAYER_CODECS)
     VP9 = Bool('vp9', owner=COMMON_ADDON_ID, category=Categories.PLAYER_CODECS)
     AV1 = Bool('av1', owner=COMMON_ADDON_ID, category=Categories.PLAYER_CODECS)
-    HDR10 = Bool('hdr10', owner=COMMON_ADDON_ID, category=Categories.PLAYER_CODECS)
+    HDR10 = Bool('hdr10', default=True, owner=COMMON_ADDON_ID, category=Categories.PLAYER_CODECS)
     DOLBY_VISION = Bool('dolby_vision', owner=COMMON_ADDON_ID, category=Categories.PLAYER_CODECS)
     DOLBY_ATMOS = Bool('dolby_atmos', owner=COMMON_ADDON_ID, category=Categories.PLAYER_CODECS)
     DTSX = Bool('dtsx', owner=COMMON_ADDON_ID, category=Categories.PLAYER_CODECS)
@@ -271,7 +269,6 @@ class CommonSettings(BaseSettings):
     VERIFY_SSL = Bool('verify_ssl', default=True, owner=COMMON_ADDON_ID, category=Categories.NETWORK)
     HTTP_TIMEOUT = Number('http_timeout', default=15, owner=COMMON_ADDON_ID, category=Categories.NETWORK)
     HTTP_RETRIES = Number('http_retries', default=1, owner=COMMON_ADDON_ID, category=Categories.NETWORK)
-    DISABLE_DNS_OVERRIDES = Bool('disable_dns_overrides', owner=COMMON_ADDON_ID, category=Categories.NETWORK)
     PROXY_SERVER = Text('proxy_server', owner=COMMON_ADDON_ID, enable=is_donor, disabled_reason=_.SUPPORTER_ONLY, default_label=_.DEFAULT, category=Categories.NETWORK)
     DNS_SERVER = Text('dns_server', owner=COMMON_ADDON_ID, enable=is_donor, disabled_reason=_.SUPPORTER_ONLY, default_label=_.DEFAULT, category=Categories.NETWORK)
     IP_MODE = Enum('ip_mode', options=[[_.PREFER_IPV4, IPMode.PREFER_IPV4], [_.PREFER_IPV6, IPMode.PREFER_IPV6], [_.ONLY_IPV4, IPMode.ONLY_IPV4], [_.ONLY_IPV6, IPMode.ONLY_IPV6]],
@@ -296,7 +293,7 @@ class CommonSettings(BaseSettings):
     FAST_UPDATES = Bool('fast_updates', default=True, enable=is_donor, disabled_value=False, disabled_reason=_.SUPPORTER_ONLY, override=False, owner=COMMON_ADDON_ID, category=Categories.SYSTEM)
     TRAILER_CONTEXT_MENU = Bool('trailer_context_menu', default=True, enable=is_donor, after_save=lambda val:set_trailer_context(),
         after_clear=set_trailer_context, disabled_value=False, disabled_reason=_.SUPPORTER_ONLY, override=False, owner=COMMON_ADDON_ID, category=Categories.SYSTEM)
-    UPDATE_ADDONS = Action("RunPlugin(plugin://{}/?_=update_addons)".format(COMMON_ADDON_ID), owner=COMMON_ADDON_ID, category=Categories.SYSTEM)
+    UPDATE_ADDONS = Action("RunPlugin(plugin://{}/?_=update_addons)".format(COMMON_ADDON_ID), enable=is_donor, disabled_reason=_.SUPPORTER_ONLY, owner=COMMON_ADDON_ID, category=Categories.SYSTEM)
     CHECK_LOG = Action("RunPlugin(plugin://{}/?_=check_log)".format(COMMON_ADDON_ID), owner=COMMON_ADDON_ID, category=Categories.SYSTEM)
 
     # ROOT
@@ -308,7 +305,6 @@ class CommonSettings(BaseSettings):
     LAST_DONOR_CHECK = Number('last_donor_check', visible=False, override=False, owner=COMMON_ADDON_ID)
     LAST_NEWS_CHECK = Number('last_news_check', visible=False, override=False, owner=COMMON_ADDON_ID)
     LAST_NEWS_ID = Text('last_news_id', visible=False, override=False, owner=COMMON_ADDON_ID)
-    PERSIST_CACHE = Bool('persist_cache', default=True, visible=False, override=False, owner=COMMON_ADDON_ID)
     PROXY_PORT = Number('proxy_port', default=DEFAULT_PORT, visible=False, override=False, owner=COMMON_ADDON_ID)
     PROXY_PATH = Text('proxy_path', visible=False, override=False, owner=COMMON_ADDON_ID)
     UPDATES = Dict('updates', visible=False, override=False, owner=COMMON_ADDON_ID)

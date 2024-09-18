@@ -17,7 +17,8 @@ from slyguy.util import async_tasks
 from .api import API
 from .constants import *
 from .language import _
-from .settings import settings
+from .settings import settings, Ratio
+
 
 #Fix LOGIN
 # Can get password file from https://go.aftvnews.com/342525
@@ -29,10 +30,12 @@ a.setSettingString('_userdata', '{"username":"thehoof300414@gmail.com","refresh_
 
 api = API()
 
+
 @signals.on(signals.BEFORE_DISPATCH)
 def before_dispatch():
     api.new_session()
     plugin.logged_in = api.logged_in
+
 
 @plugin.route('')
 def index(**kwargs):
@@ -376,7 +379,7 @@ def _parse_series(row):
     return item
 
 def _parse_season(row, series):
-    title = _(_.SEASON, season=row['seasonSequenceNumber'])
+    title = _(_.SEASON, number=row['seasonSequenceNumber'])
 
     return plugin.Item(
         label = title,
@@ -677,22 +680,21 @@ def _play(family_id=None, content_id=None, **kwargs):
         raise PluginError(_.NO_VIDEO_FOUND)
 
     versions = video['mediaMetadata']['facets']
-
     has_imax = False
     for row in versions:
         if row['activeAspectRatio'] == 1.9:
             has_imax = True
 
     if has_imax:
-        deault_ratio = settings.getEnum('default_ratio', RATIO_TYPES, default=RATIO_IMAX)
+        deault_ratio = settings.DEFAULT_RATIO.value
 
-        if deault_ratio == RATIO_ASK:
+        if deault_ratio == Ratio.ASK:
             index = gui.context_menu([_.IMAX, _.WIDESCREEN])
             if index == -1:
                 return
             imax = True if index == 0 else False
         else:
-            imax = True if deault_ratio == RATIO_IMAX else False
+            imax = True if deault_ratio == Ratio.IMAX else False
 
         profile = api.profile()[0]
         if imax != profile['attributes']['playbackSettings']['preferImaxEnhancedVersion']:

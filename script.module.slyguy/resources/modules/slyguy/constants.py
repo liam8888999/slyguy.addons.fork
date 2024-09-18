@@ -18,7 +18,6 @@ REPO_ADDON_ID = 'repository.liam3'
 DEPENDENCIES_ADDON_ID = 'slyguy.dependencies'
 COMMON_ADDON_ID = 'script.module.slyguy'
 COMMON_ADDON = xbmcaddon.Addon(COMMON_ADDON_ID)
-NEW_SETTINGS = not os.path.exists(os.path.join(ADDON_PATH, 'resources', 'settings.xml'))
 
 try: KODI_VERSION = int(xbmc.getInfoLabel("System.BuildVersion").split('.')[0])
 except: KODI_VERSION = 18
@@ -26,8 +25,6 @@ except: KODI_VERSION = 18
 REPO_HOST = 'slyguy.uk'
 REPO_DOMAIN = 'https://' + REPO_HOST
 REDIRECT_HOSTS = ['i.mjh.nz', 'r.mjh.nz', 'c.mjh.nz', 'jmp2.uk']
-DNS_OVERRIDE_DOMAINS = REDIRECT_HOSTS + ['dai.google.com', REPO_HOST]
-DNS_OVERRIDE_SERVER = 'https://cloudflare-dns.com/dns-query'
 DONOR_URL = 'https://d.slyguy.uk/donors/{id}'
 DONOR_CHECK_TIME = (60*60*1) #1 hour
 DONOR_TIMEOUT = 172800 #48 hours
@@ -85,6 +82,7 @@ ROUTE_AUTOFOLDER_TAG   = '_autofolder'
 ROUTE_MIGRATE_DONE     = '_migrated'
 ROUTE_BOOKMARKS        = '_bookmarks'
 ROUTE_CONTEXT          = '_context'
+ROUTE_SCRIPT           = '_script'
 #################
 
 #### INPUTSTREAM ADAPTIVE #####
@@ -112,11 +110,9 @@ LOG_FORMAT = u'%(name)s - %(message)s'
 QUALITY_ASK = -1
 QUALITY_BEST = -2
 QUALITY_LOWEST = -3
-QUALITY_SKIP = -4
+QUALITY_DISABLED = QUALITY_SKIP = -4
 QUALITY_CUSTOM = -5
-QUALITY_DISABLED = -6
 QUALITY_EXIT = -7
-QUALITY_TYPES = [QUALITY_ASK, QUALITY_BEST, QUALITY_LOWEST, QUALITY_SKIP, QUALITY_CUSTOM, QUALITY_DISABLED]
 QUALITY_TAG = '_quality'
 
 ## PLAY FROM ##

@@ -51,6 +51,21 @@ def login_required():
         return decorated_function
     return lambda f: decorator(f)
 
+
+# @plugin.continue_on_error()
+def continue_on_error(error_msg=None):
+    def decorator(f, error_msg):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            try:
+                return f(*args, **kwargs)
+            except Exception as e:
+                log.exception(e)
+                gui.ok(str(e), heading=error_msg)
+        return decorated_function
+    return lambda f: decorator(f, error_msg)
+
+
 # @plugin.route()
 def route(url=None):
     def decorator(f, url):
@@ -241,7 +256,7 @@ def resolve():
         return
 
     if '_play=1' in sys.argv[2]:
-        path = settings.common_settings.get('_proxy_path')+STOP_URL
+        path = settings.get('_proxy_path')+STOP_URL
         xbmcplugin.setResolvedUrl(handle, True, Item(path=path).get_li())
     else:
         xbmcplugin.endOfDirectory(handle, succeeded=False, updateListing=False, cacheToDisc=False)
@@ -370,11 +385,6 @@ def _migrate_done(old_addon_id, **kwargs):
 
 @route(ROUTE_SETTINGS)
 def _settings(category=0, **kwargs):
-    if not NEW_SETTINGS:
-        _close()
-        settings.open()
-        return gui.refresh()
-
     category = Category.get(int(category))
     folder = Folder(category.label, content='files')
 
@@ -414,20 +424,20 @@ def _settings(category=0, **kwargs):
 
 @route()
 def setting_help(id, **kwargs):
-    setting = settings.common_settings.get_setting(id)
+    setting = settings.get_setting(id)
     gui.ok(setting.description, setting._label)
 
 
 @route()
 def setting_select(id, **kwargs):
-    setting = settings.common_settings.get_setting(id)
+    setting = settings.get_setting(id)
     if setting.on_select():
         gui.refresh()
 
 
 @route()
 def setting_clear(id, **kwargs):
-    setting = settings.common_settings.get_setting(id)
+    setting = settings.get_setting(id)
     if setting.on_clear():
         gui.refresh()
 
@@ -672,7 +682,7 @@ class Item(gui.Item):
             self.art['thumb'] = self.art.get('thumb') or default_thumb
             self.art['fanart'] = self.art.get('fanart') or default_fanart
 
-        if self.path and self.playable and (not NEW_SETTINGS or is_donor()):
+        if self.path and self.playable and is_donor():
             url = router.add_url_args(self.path, **{QUALITY_TAG: QUALITY_ASK})
             self.context.append((_.SELECT_QUALITY, 'PlayMedia({},noresume)'.format(url)))
 
@@ -682,17 +692,10 @@ class Item(gui.Item):
         self.playable = True
 
         quality = QUALITY_SKIP
-        if not NEW_SETTINGS or is_donor():
+        if is_donor():
             quality = kwargs.get(QUALITY_TAG, self.quality)
             if quality is None:
-                if NEW_SETTINGS:
-                    quality = settings.QUALITY_MODE.value
-                else:
-                    self.proxy_data['max_bandwidth'] = 0
-                    quality = settings.getEnum('default_quality', QUALITY_TYPES, default=QUALITY_ASK)
-                    if quality == QUALITY_CUSTOM:
-                        quality = QUALITY_BEST
-                        self.proxy_data['max_bandwidth'] = settings.getInt('max_bandwidth', 0)
+                quality = settings.QUALITY_MODE.value
             else:
                 quality = int(quality)
         self.proxy_data['quality'] = quality
@@ -760,9 +763,9 @@ class Folder(object):
                     is_folder = False,
                 ))
 
-        video_view_menus = settings.common_settings.getBool('video_view_menus', False)
-        video_view_media = settings.common_settings.getBool('video_view_media', False)
-        menu_view_shows_seasons = settings.common_settings.getBool('menu_view_shows_seasons', False)
+        video_view_menus = settings.getBool('video_view_menus', False)
+        video_view_media = settings.getBool('video_view_media', False)
+        menu_view_shows_seasons = settings.getBool('menu_view_shows_seasons', False)
 
         handle = _handle()
         count = 0.0
@@ -896,7 +899,7 @@ class Folder(object):
 
 
 def require_update():
-    updates = settings.common_settings.getDict('_updates')
+    updates = settings.getDict('_updates')
     if not updates:
         return
 
@@ -915,7 +918,7 @@ def require_update():
 
 
 def process_news():
-    news = settings.common_settings.getDict('_news')
+    news = settings.getDict('_news')
     if not news:
         return
 
@@ -923,7 +926,7 @@ def process_news():
         if news.get('show_in') and ADDON_ID.lower() not in [x.lower() for x in news['show_in'].split(',')]:
             return
 
-        settings.common_settings.setDict('_news', {})
+        settings.setDict('_news', {})
 
         if news.get('country'):
             valid = False
