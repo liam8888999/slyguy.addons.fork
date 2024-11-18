@@ -166,8 +166,8 @@ class Merger(object):
         self._extgroups = []
 
     def _call_addon_method(self, plugin_url, file_path):
-        file_path = quote_plus(file_path)
-        plugin_url = plugin_url.replace('$FILE', file_path).replace('%24FILE', file_path)
+        quoted_file_path = quote_plus(file_path)
+        plugin_url = plugin_url.replace('$FILE', quoted_file_path).replace('%24FILE', quoted_file_path)
         dirs, files = run_plugin(plugin_url, wait=True)
 
         try:
@@ -177,6 +177,11 @@ class Merger(object):
 
         if not result:
             raise AddonError(msg)
+
+        if xbmcvfs.exists(file_path):
+            return file_path
+        else:
+            return msg
 
     def _process_source(self, source, method_name, file_path):
         remove_file(file_path)
@@ -214,8 +219,9 @@ class Merger(object):
 
     def _process_path(self, path, archive_type, file_path):
         if path.lower().startswith('plugin://'):
-            self._call_addon_method(path, file_path)
-            return
+            path = self._call_addon_method(path, file_path)
+            if not path:
+                return
 
         if path.lower().startswith('http://') or path.lower().startswith('https://'):
             if 'drive.google.com' in path.lower():
@@ -282,13 +288,14 @@ class Merger(object):
                 if '#EXTM3U' in line:
                     #if not playlist.ignore_playlist_epg:
                     attribs = parse_attribs(line)[0]
-                    xml_urls = attribs.get('x-tvg-url', '').split(',')
-                    xml_urls.extend(attribs.get('url-tvg', '').split(','))
 
-                    for url in xml_urls:
-                        url = url.strip()
-                        if url:
-                            self._playlist_epgs.append(url)
+                    if not playlist.get_option('ignore_epgs', False):
+                        xml_urls = attribs.get('x-tvg-url', '').split(',')
+                        xml_urls.extend(attribs.get('url-tvg', '').split(','))
+                        for url in xml_urls:
+                            url = url.strip()
+                            if url:
+                                self._playlist_epgs.append(url)
 
                     if 'tvg-shift' in attribs:
                         default_attribs['tvg-shift'] = attribs['tvg-shift']

@@ -1,6 +1,7 @@
 import json
 import socket
 import shutil
+import sys
 import re
 import time
 import os
@@ -17,7 +18,7 @@ from kodi_six import xbmc
 import dns.resolver
 
 from slyguy import userdata, settings, signals, mem_cache, log, _
-from slyguy.util import get_kodi_proxy
+from slyguy.util import get_kodi_proxy, remove_duplicates
 from slyguy.smart_urls import get_dns_rewrites
 from slyguy.exceptions import SessionError, Error
 from slyguy.constants import DEFAULT_USERAGENT, CHUNK_SIZE, KODI_VERSION
@@ -115,9 +116,46 @@ class DNSResolver(dns.resolver.Resolver):
 class SessionAdapter(requests.adapters.HTTPAdapter):
     def __init__(self):
         self.session_data = {}
+        self._context_cache = {}
         super(SessionAdapter, self).__init__()
 
+    def send(self, *args, **kwargs):
+        try:
+            return super(SessionAdapter, self).send(*args, **kwargs)
+        except requests.exceptions.ConnectionError as e:
+            log.exception(e)
+            log.error('Connection error. Retrying...')
+            # retry on connectionerror (pool or socket closed)
+            return super(SessionAdapter, self).send(*args, **kwargs)
+
     def init_poolmanager(self, *args, **kwargs):
+        # Set keep alive socket options
+        # Stolen from https://github.com/requests/toolbelt/blob/master/requests_toolbelt/adapters/socket_options.py#L74
+        idle = 60
+        interval = 20
+        count = 5
+
+        kwargs['socket_options'] = [
+            (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1),
+            (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
+        ]
+
+        # OSX does not have these constants defined, so we set them conditionally.
+        if getattr(socket, 'TCP_KEEPINTVL', None) is not None:
+            kwargs['socket_options'] += [(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL,
+                                interval)]
+        elif sys.platform == 'darwin':
+            # On OSX, TCP_KEEPALIVE from netinet/tcp.h is not exported
+            # by python's socket module
+            TCP_KEEPALIVE = getattr(socket, 'TCP_KEEPALIVE', 0x10)
+            kwargs['socket_options'] += [(socket.IPPROTO_TCP, TCP_KEEPALIVE, interval)]
+
+        if getattr(socket, 'TCP_KEEPCNT', None) is not None:
+            kwargs['socket_options'] += [(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, count)]
+
+        if getattr(socket, 'TCP_KEEPIDLE', None) is not None:
+            kwargs['socket_options'] += [(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, idle)]
+        #######################
         super(SessionAdapter, self).init_poolmanager(*args, **kwargs)
         self.poolmanager.connection_from_pool_key = functools.partial(self.connection_from_pool_key, self.poolmanager.connection_from_pool_key)
 
@@ -127,15 +165,17 @@ class SessionAdapter(requests.adapters.HTTPAdapter):
         return manager
 
     def connection_from_pool_key(self, func, pool_key, request_context):
-        # Creat our SSL context
-        request_context['ssl_context'] = requests.packages.urllib3.util.ssl_.create_urllib3_context(
-            ciphers=self.session_data['ssl_ciphers'],
-            options=self.session_data['ssl_options'],
-        )
-        #loads in any windows certstore certs (eg business proxy)
-        request_context['ssl_context'].load_default_certs()
-        # ensure unique pool (socket) for ssl cipher / options
-        pool_key = pool_key._replace(key_ssl_context=(self.session_data['ssl_ciphers'], self.session_data['ssl_options']))
+        context_key = (self.session_data['ssl_ciphers'], self.session_data['ssl_options'])
+        context = self._context_cache.get(context_key)
+        if not context:
+            context = requests.packages.urllib3.util.ssl_.create_urllib3_context(
+                ciphers=self.session_data['ssl_ciphers'],
+                options=self.session_data['ssl_options'],
+            )
+            #loads in any windows certstore certs (eg business proxy)
+            context.load_default_certs()
+        request_context['ssl_context'] = self._context_cache[context_key] = context
+        pool_key = pool_key._replace(key_ssl_context=context_key)
 
         if self.session_data['interface_ip']:
             request_context['source_address'] = (self.session_data['interface_ip'], 0)
@@ -174,7 +214,7 @@ class SessionAdapter(requests.adapters.HTTPAdapter):
 
         if self.session_data['rewrite'] and self.session_data['rewrite'][0] == host:
             ip = self.session_data['rewrite'][1]
-            ips.append(ips)
+            ips.append(ip)
             log.debug("DNS Rewrite: {} -> {}".format(host, ip))
 
         elif self.session_data['resolver'] and self.session_data['resolver'][0] == host:
@@ -198,7 +238,7 @@ class SessionAdapter(requests.adapters.HTTPAdapter):
                         continue
 
                     start = time.time()
-                    ips = resolver.resolve(host, family=address_family, interface_ip=self.session_data['interface_ip'])
+                    ips = remove_duplicates(resolver.resolve(host, family=address_family, interface_ip=self.session_data['interface_ip']))
                     if ips:
                         log.debug('DNS Resolve: {} -> {} -> {} ({:.5f}s)'.format(host, ', '.join(resolver.nameservers), ', '.join(ips), time.time()-start))
                         return ips

@@ -107,12 +107,12 @@ class Setting(object):
             value = value()
 
         if isinstance(value, str):
-            value = bool(int(xbmc.getCondVisibility(value)))
+            value = int(xbmc.getCondVisibility(value))
 
-        if not isinstance(value, bool):
+        if value not in (True, False, 0, 1):
             raise Exception('enable is not a bool')
 
-        return value
+        return bool(value)
 
     def matches_id(self, id):
         ids = [self.id.lower(), '_{}'.format(self.id.lower())]
@@ -475,6 +475,7 @@ def migrate_userdata(settings):
 
 def reset_addon():
     STORAGE.delete_all(ADDON_ID)
+    signals.emit(signals.AFTER_RESET)
     from slyguy import gui
     gui.notification(_.PLUGIN_RESET_OK)
     return True

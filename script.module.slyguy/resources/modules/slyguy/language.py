@@ -111,7 +111,9 @@ class BaseLanguage(object):
     NO_ERROR_MSG                = 32052
     MULTI_BASEURL_WARNING       = 32053
     QUALITY_CUSTOM              = 32054
-    QUALITY_ASK = ASK = PLAY_FROM_ASK = 32055
+    QUALITY_ASK                 = 32055
+    ASK                         = 32055
+    PLAY_FROM_ASK               = 32055
     QUALITY_PARSE_ERROR         = 32056
     QUALITY_BAD_M3U8            = 32057
     WV_INSTALLED                = 32058
@@ -307,6 +309,7 @@ class BaseLanguage(object):
     MERGE_NOT_SUPPORTED         = 32220
     TRAILER_CONTEXT_MENU        = 32221
     NOT_SET                     = 32222
+    PROXY_PORT                  = 32223
 
     def __init__(self):
         self._addon_map = {}    

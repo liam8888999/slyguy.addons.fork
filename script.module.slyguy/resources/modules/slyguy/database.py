@@ -153,7 +153,6 @@ class Database(peewee.SqliteDatabase):
         for table in self._tables:
             table._meta.database = self
         signals.add(signals.ON_EXIT, lambda db=self: close(db))
-        signals.add(signals.AFTER_RESET, lambda db=self: delete(db))
         super(Database, self).__init__(database, *args, **kwargs)
 
     def register_function(self, fn, name=None, num_params=-1):
@@ -174,9 +173,6 @@ class Database(peewee.SqliteDatabase):
             return
 
         log.debug("Connecting to db: {}".format(self.database))
-        if os.path.exists(self.database):
-            return super(Database, self).connect(*args, **kwargs)
-
         makedirs(os.path.dirname(self.database))
         timeout = time.time() + 5
         result = False
@@ -197,6 +193,8 @@ class Database(peewee.SqliteDatabase):
         return result
 
 
-def init(tables=None, db_path=DB_PATH):
+def init(tables=None, db_path=DB_PATH, delete_on_reset=True):
     db = DBS[db_path] = Database(db_path, pragmas=DB_PRAGMAS, timeout=10, autoconnect=True, tables=tables)
+    if delete_on_reset:
+        signals.add(signals.AFTER_RESET, lambda db=db: delete(db))
     return db
