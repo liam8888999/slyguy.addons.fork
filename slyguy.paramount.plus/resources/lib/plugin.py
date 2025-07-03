@@ -9,9 +9,8 @@ import xbmcgui
 import xbmcplugin
 
 import arrow
-from slyguy import plugin, gui, userdata, signals, inputstream
+from slyguy import monitor, plugin, gui, userdata, signals, inputstream
 from slyguy.exceptions import PluginError
-from slyguy.monitor import monitor
 from slyguy.drm import is_wv_secure
 from slyguy.constants import MIDDLEWARE_PLUGIN, NO_RESUME_TAG, ROUTE_RESUME_TAG, ROUTE_LIVE_TAG
 
@@ -445,7 +444,7 @@ def show(show_id, config=None, **kwargs):
             if not config:
                 continue
 
-            if config.get('display_seasons') and 'episodes' in config.get('section_type').lower():
+            if config.get('display_seasons') and 'episodes' in (config.get('section_type') or '').lower():
                 for row in sorted(api.seasons(show_id), key=lambda x: int(x['seasonNum'])):
                     if not row['totalCount']:
                         continue
@@ -584,18 +583,20 @@ def _get_thumb(thumbs, _type='PosterArt', dimensions='w400'):
 def _movie_art(thumbs, assets=None):
     assets = assets or {}
 
-    art = {
-        'thumb': _get_thumb(thumbs, 'PosterArt'),
-        'fanart': _get_thumb(thumbs, 'Thumbnail', 'w1920-q80'),
+    # PosterArt 404s for some movies, so only use it as a fallback
+    if 'filepath_movie_poster' in assets:
+        thumb = config.image(assets['filepath_movie_poster'])
+    else:
+        thumb = _get_thumb(thumbs, 'PosterArt'),
+
+    fanart = _get_thumb(thumbs, 'Thumbnail', 'w1920-q80')
+    if fanart is None and 'filepath_movie_hero_sky' in assets:
+        fanart = config.image(assets['filepath_movie_hero_sky'], 'w1920-q80')
+
+    return {
+        'thumb': thumb,
+        'fanart': fanart,
     }
-
-    if not art['thumb'] and 'filepath_movie_poster' in assets:
-        art['thumb'] = config.image(assets['filepath_movie_poster'])
-
-    if not art['fanart'] and 'filepath_movie_hero_sky' in assets:
-        art['fanart'] = config.image(assets['filepath_movie_hero_sky'], 'w1920-q80')
-
-    return art
 
 @plugin.route()
 @plugin.search()
@@ -759,9 +760,7 @@ def play_channel(slug, listing_id=None, **kwargs):
                         break
 
             if selected:
-                if selected['dma']:
-                    url = selected['dma']['playback_url']
-                elif selected['contentCANVideo'] and selected['contentCANVideo'].get('liveStreamingUrl'):
+                if selected['contentCANVideo'] and selected['contentCANVideo'].get('liveStreamingUrl'):
                     url = selected['contentCANVideo'].get('liveStreamingUrl')
                 elif selected['streamType'] == 'mpx_live':
                     item = _play(selected['videoContentId'])

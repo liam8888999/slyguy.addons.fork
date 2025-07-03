@@ -2,12 +2,12 @@ import re
 import codecs
 from xml.sax.saxutils import escape
 
-import arrow
-from six.moves.urllib_parse import urlparse, parse_qsl, quote_plus
-
-from slyguy import plugin, signals, mem_cache
+from slyguy import plugin, signals, mem_cache, gui, monitor
 from slyguy.exceptions import PluginError
 from slyguy.constants import ROUTE_LIVE_TAG
+
+import arrow
+from six.moves.urllib_parse import urlparse, parse_qsl, quote_plus
 
 from .api import API
 from .language import _
@@ -27,12 +27,17 @@ def before_dispatch():
 def home(**kwargs):
     folder = plugin.Folder(cacheToDisc=False)
 
-    folder.add_item(label=_(_.LIVE_TV, _bold=True), path=plugin.url_for(live_tv))
-    folder.add_item(label=_(_.FEATURED, _bold=True), path=plugin.url_for(content, slug='ctv-home'))
-    _nav(folder)
-    folder.add_item(label=_(_.NEWS, _bold=True), path=plugin.url_for(content, slug='news'))
-    folder.add_item(label=_(_.CATEGORIES, _bold=True), path=plugin.url_for(content, slug='all-categories'))
-    folder.add_item(label=_(_.SEARCH, _bold=True), path=plugin.url_for(search))
+    if not api.logged_in:
+        folder.add_item(label=_(_.LOGIN, _bold=True), path=plugin.url_for(login), bookmark=False)
+    else:
+        folder.add_item(label=_(_.LIVE_TV, _bold=True), path=plugin.url_for(live_tv))
+        folder.add_item(label=_(_.FEATURED, _bold=True), path=plugin.url_for(content, slug='ctv-home'))
+        _nav(folder)
+        folder.add_item(label=_(_.NEWS, _bold=True), path=plugin.url_for(content, slug='news'))
+        folder.add_item(label=_(_.CATEGORIES, _bold=True), path=plugin.url_for(content, slug='all-categories'))
+        folder.add_item(label=_(_.SEARCH, _bold=True), path=plugin.url_for(search))
+
+        folder.add_item(label=_.LOGOUT, path=plugin.url_for(logout), _kiosk=False, bookmark=False)
 
     if settings.getBool('bookmarks', True):
         folder.add_item(label=_(_.BOOKMARKS, _bold=True),  path=plugin.url_for(plugin.ROUTE_BOOKMARKS), bookmark=False)
@@ -40,6 +45,42 @@ def home(**kwargs):
     folder.add_item(label=_.SETTINGS, path=plugin.url_for(plugin.ROUTE_SETTINGS), _kiosk=False, bookmark=False)
 
     return folder
+
+
+@plugin.route()
+def login(**kwargs):
+    options = [
+        [_.DEVICE_CODE, _device_code],
+    ]
+
+    index = 0 if len(options) == 1 else gui.context_menu([x[0] for x in options])
+    if index == -1 or not options[index][1]():
+        return
+
+    gui.refresh()
+
+
+def _device_code():
+    use_location = gui.yes_no(_.LOCATION_ABOUT, heading=_.VERIFY_LOCATION)
+    data = api.device_code(location=use_location)
+    url = data['verification_uri_complete'].replace('code={}&'.format(data['user_code']), '')
+    with gui.progress_qr(data['verification_uri_complete'], _(_.DEVICE_LINK_STEPS, code=data['user_code'], url=url), heading=_.DEVICE_CODE) as progress:
+        for i in range(data['expires_in']):
+            if progress.iscanceled() or monitor.waitForAbort(1):
+                return
+
+            progress.update(int((i / float(data['expires_in'])) * 100))
+            if i % data['interval'] == 0 and api.device_login(data['device_code']):
+                return True
+
+
+@plugin.route()
+def logout(**kwargs):
+    if not gui.yes_no(_.LOGOUT_YES_NO):
+        return
+
+    api.logout()
+    gui.refresh()
 
 
 def _get_url(url):
@@ -79,6 +120,8 @@ def search(query, page, **kwargs):
 
 
 def _image(url, width=IMAGE_WIDTH):
+    if url is None:
+        return None
     return IMAGE_URL.format(url=quote_plus(url.encode('utf8')), width=width)
 
 
@@ -117,6 +160,7 @@ def _process_rows(rows, slug='', expand_media=False, season_num=0, thumb=None):
                 patterns = [
                     ['([0-9]+)h ([0-9]+)m ([0-9]+)s', lambda match: int(match.group(1))*3600 + int(match.group(2))*60 + int(match.group(3))],
                     ['([0-9]+)h ([0-9]+)m', lambda match: int(match.group(1))*3600 + int(match.group(2))*60],
+                    ['([0-9]+)h', lambda match: int(match.group(1))*3600],
                     ['([0-9]+)m$', lambda match: int(match.group(1))*60],
                     ['([0-9]+)s$', lambda match: int(match.group(1))],
                 ]
@@ -134,11 +178,11 @@ def _process_rows(rows, slug='', expand_media=False, season_num=0, thumb=None):
                 return 0
 
             def _get_season_episode(row):
-                titles = [row['cardData']['title'], row['cardData']['image'].get('altTag','')]
+                titles = [row['cardData']['title'], row['cardData']['image'].get('altTag',''), row.get('catalogueNumber')]
                 if 'infoPanelData' in row:
                     titles.insert(0, row['infoPanelData']['title'])
 
-                patterns = ['(S([0-9]+) E([0-9]+))', '(Season ([0-9]+)) Episode ([0-9]+)', '(Year ([0-9]+)) Episode ([0-9]+)']
+                patterns = ['(S([0-9]+) E([0-9]+))', '(Season ([0-9]+)) Episode ([0-9]+)', '(Year ([0-9]+)) Episode ([0-9]+)', '(([0-9]+)-([0-9]+)$)']
 
                 for title in titles:
                     title = re.sub('^([0-9]+\.)', '', title)
@@ -153,13 +197,14 @@ def _process_rows(rows, slug='', expand_media=False, season_num=0, thumb=None):
             info['season'], info['episode'] = _get_season_episode(row)
             info['duration'] = _get_duration(row)
 
-            if not info['season'] and not info['episode'] and count == 1:
-                info['mediatype'] = 'movie'
-                info['year'] = season_num
-                art  = {'thumb': _image(thumb)}
-            else:
+            if info['season'] == season_num:
                 info['mediatype'] = 'episode'
                 art  = {'thumb': _image(row['cardData']['image']['url'])}
+            else:
+                info['season'], info['episode'] = None, None
+                info['mediatype'] = 'movie'
+                info['year'] = season_num
+                art  = {'thumb': _image(thumb or row['cardData']['image']['url'])}
 
             if 'seriesLogo' in row['cardData']:
                 art['clearlogo'] = _image(row['cardData']['seriesLogo']['url'])
@@ -333,7 +378,7 @@ def show(slug, data, thumb=None):
                     'mediatype': 'season',
                     'tvshowtitle': data['title'],
                 },
-                path = plugin.url_for(component, slug=slug, id=season[2]['id'], label=show_name, fanart=fanart),
+                path = plugin.url_for(component, slug=slug, id=season[2]['id'], season_num=season[0], label=show_name, fanart=fanart),
             )
 
     if clips and not settings.getBool('hide_clips', False):
@@ -358,16 +403,18 @@ def show(slug, data, thumb=None):
 
 
 @plugin.route()
-def component(slug, id, label, expand_media=0, fanart=None, **kwargs):
+def component(slug, id, label, expand_media=0, season_num=0, fanart=None, **kwargs):
     expand_media = int(expand_media)
+    season_num = int(season_num)
 
     folder = plugin.Folder(label, fanart=fanart)
-    items = _process_rows(api.component(slug, id)['items'], slug, expand_media)
+    items = _process_rows(api.component(slug, id)['items'], slug, expand_media, season_num=season_num)
     folder.add_items(items)
     return folder
 
 
 @plugin.route()
+@plugin.login_required()
 def play_vod(slug, **kwargs):
     data = api.content(slug)
 
@@ -387,6 +434,7 @@ def play_vod(slug, **kwargs):
 
 
 @plugin.route()
+@plugin.login_required()
 def play_channel(slug, **kwargs):
     data = api.video_player(slug)
     url = data['videoUrl']
@@ -401,13 +449,14 @@ def play_channel(slug, **kwargs):
 
 
 @plugin.route()
+@plugin.login_required()
 def play(account, reference, **kwargs):
     return _play(account, reference, live=ROUTE_LIVE_TAG in kwargs)
 
 
 def _play(account, reference, live=False):
     item = api.play(account, reference, live)
-    item.headers = HEADERS
+    item.headers.update(HEADERS)
 
     if live and item.inputstream:
         item.inputstream.live = True
@@ -430,7 +479,7 @@ def _get_live_channels():
                 channels.append(row)
                 added.append(row['channelId'])
 
-    return sorted(channels, key=lambda x: int(x['channelId']))
+    return sorted(channels, key=lambda x: int(x['rank']))
 
 
 @plugin.route()

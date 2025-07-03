@@ -1,6 +1,8 @@
 import os
+import re
 import shutil
 import time
+import gzip
 import codecs
 import xml.parsers.expat
 
@@ -21,8 +23,19 @@ from .language import _
 from .settings import settings
 from . import iptv_manager
 
+
+amp_pattern = re.compile(rb'^#?\w+;')
+
 class AddonError(Error):
     pass
+
+
+def epg_file_name():
+    if settings.GZ_EPG.value:
+        return EPG_FILE_NAME + '.gz'
+    else:
+        return EPG_FILE_NAME
+
 
 def copy_partial_data(file_path, _out, start_index, end_index):
     if start_index < 1 or end_index < start_index:
@@ -44,6 +57,7 @@ def copy_partial_data(file_path, _out, start_index, end_index):
     except:
         return
 
+
 def _seek_file(f, index, truncate=True):
     cur_index = f.tell()
     if cur_index != index:
@@ -51,6 +65,7 @@ def _seek_file(f, index, truncate=True):
         f.seek(index, os.SEEK_SET)
         if truncate:
             f.truncate()
+
 
 class XMLParser(object):
     def __init__(self, out, epg_ids=None):
@@ -66,6 +81,7 @@ class XMLParser(object):
         self._counts = {
             'channel': {'added': 0, 'skipped': 0},
             'programme': {'added': 0, 'skipped': 0},
+            '&_fix': 0,
         }
 
         self._parser = xml.parsers.expat.ParserCreate()
@@ -77,11 +93,28 @@ class XMLParser(object):
         self._offset = 0
         self._add = False
 
+    def _fast_escape_amp(self, xml):
+        parts = xml.split(b'&')
+        if len(parts) == 1:
+            return xml
+        result = [parts[0]]
+        for part in parts[1:]:
+            if amp_pattern.match(part):
+                result.append(b'&' + part)
+            else:
+                self._counts['&_fix'] += 1
+                result.append(b'&amp;' + part)
+        return b''.join(result)
+
     def epg_count(self):
         if self._check_orphans:
-            return 'Added {added} / Skipped {skipped}'.format(**self._counts['programme'])
+            count = 'Added {added} / Skipped {skipped}'.format(**self._counts['programme'])
         else:
-            return 'Added {added}'.format(**self._counts['programme'])
+            count = 'Added {added}'.format(**self._counts['programme'])
+
+        if self._counts['&_fix']:
+            count += ' / Replaced {} &'.format(self._counts['&_fix'])
+        return count
 
     def _start_element(self, name, attrs):
         if name not in ('channel', 'programme'):
@@ -120,6 +153,9 @@ class XMLParser(object):
             if not chunk:
                 break
 
+            # TODO: this wouldnt work if the chunk ended with &
+            chunk = self._fast_escape_amp(chunk)
+
             self._buffer += chunk
             self._parser.Parse(chunk)
 
@@ -128,9 +164,13 @@ class XMLParser(object):
 
 
 def check_merge_required():
+    # dont allow auto merge more than every 5mins
+    if time.time() - userdata.get('last_run', 0) < 300:
+        return False
+
     output_dir = settings.get('output_dir', '').strip() or ADDON_PROFILE
     playlist_path = os.path.join(output_dir, PLAYLIST_FILE_NAME)
-    epg_path = os.path.join(output_dir, EPG_FILE_NAME)
+    epg_path = os.path.join(output_dir, epg_file_name())
 
     reload_time_hours = settings.getBool('auto_merge', True)
     if reload_time_hours:
@@ -153,6 +193,8 @@ class Merger(object):
     def __init__(self, output_path=None, forced=False):
         self.working_path = ADDON_PROFILE
         self.output_path = output_path or xbmc.translatePath(settings.get('output_dir', '').strip() or self.working_path)
+        self.temp_path = os.path.join(self.working_path, 'tmp')
+        self.tmp_file = os.path.join(self.temp_path, 'iptv_merge_tmp')
 
         if not xbmcvfs.exists(self.working_path):
             xbmcvfs.mkdirs(self.working_path)
@@ -160,8 +202,10 @@ class Merger(object):
         if not xbmcvfs.exists(self.output_path):
             xbmcvfs.mkdirs(self.output_path)
 
+        if not xbmcvfs.exists(self.temp_path):
+            xbmcvfs.mkdirs(self.temp_path)
+
         self.forced = forced
-        self.tmp_file = os.path.join(self.working_path, 'iptv_merge_tmp')
         self._playlist_epgs = []
         self._extgroups = []
 
@@ -408,21 +452,25 @@ class Merger(object):
 
                 if progress: progress.update(int(count*(100/len(playlists))), 'Merging Playlist ({}/{})'.format(count, len(playlists)), _(playlist.label, _bold=True))
 
-                playlist_start = time.time()
+                process_took = 0
+                playlist_took = 0
 
                 error = None
                 try:
                     log.debug('Processing: {}'.format(playlist.path))
 
                     if playlist.source_type != Playlist.TYPE_CUSTOM:
+                        process_start = time.time()
                         self._process_source(playlist, METHOD_PLAYLIST, self.tmp_file)
-
+                        process_took = time.time() - process_start
+                        playlist_start = time.time()
                         with Channel._meta.database.atomic() as transaction:
                             try:
                                 added = self._process_playlist(playlist, self.tmp_file)
                             except:
                                 transaction.rollback()
                                 raise
+                        playlist_took = time.time() - playlist_start
                     else:
                         added = len(playlist.channels)
                 except AddonError as e:
@@ -434,7 +482,7 @@ class Merger(object):
                     error = e
                     log.exception(e)
                 else:
-                    playlist.results.insert(0, [int(time.time()), Playlist.OK, '{} Channels ({:.2f}s)'.format(added, time.time() - playlist_start)])
+                    playlist.results.insert(0, [int(time.time()), Playlist.OK, '{} Channels ({:.2f}s + {:.2f}s)'.format(added, process_took, playlist_took)])
                     error = None
 
                 if error:
@@ -525,9 +573,18 @@ class Merger(object):
         return working_path
 
     def epgs(self, refresh=True):
-        epg_path = os.path.join(self.output_path, EPG_FILE_NAME)
-        working_path = os.path.join(self.working_path, EPG_FILE_NAME)
-        epg_path_tmp = os.path.join(self.working_path, EPG_FILE_NAME+'_tmp')
+        epg_path = os.path.join(self.output_path, epg_file_name())
+        working_path = os.path.join(self.working_path, epg_file_name())
+        epg_path_tmp = os.path.join(self.temp_path, EPG_FILE_NAME)
+
+        if settings.GZ_EPG.value:
+            # remove old non-gz if exists
+            remove_file(os.path.join(self.output_path, EPG_FILE_NAME))
+            remove_file(os.path.join(self.working_path, EPG_FILE_NAME))
+        else:
+            # remove old gz if exists
+            remove_file(os.path.join(self.output_path, EPG_FILE_NAME+'.gz'))
+            remove_file(os.path.join(self.working_path, EPG_FILE_NAME+'.gz'))
 
         if not refresh and xbmcvfs.exists(epg_path) and xbmcvfs.exists(working_path):
             return working_path
@@ -554,7 +611,8 @@ class Merger(object):
                         epgs.append(epg)
                         epg_urls.append(url.lower())
 
-            with FileIO(epg_path_tmp, 'wb') as _out:
+            # gzip cant seek, so must do xml first and then gz after
+            with FileIO(epg_path_tmp, "wb") as _out:
                 _out.write(b'<?xml version="1.0" encoding="UTF-8"?><tv>')
 
                 for count, epg in enumerate(epgs):
@@ -564,18 +622,21 @@ class Merger(object):
 
                     file_index = _out.tell()
 
-                    epg_start = time.time()
                     try:
                         log.debug('Processing: {}'.format(epg.path))
+                        process_start = time.time()
                         self._process_source(epg, METHOD_EPG, self.tmp_file)
+                        process_took = time.time() - process_start
+                        parser_start = time.time()
                         with FileIO(self.tmp_file, 'rb') as _in:
                             parser = XMLParser(_out, epg_ids)
                             parser.parse(_in, epg)
+                        parser_took = time.time() - parser_start
                     except Exception as e:
                         log.exception(e)
                         result = [int(time.time()), EPG.ERROR, str(e)]
                     else:
-                        result = [int(time.time()), EPG.OK, '{} ({:.2f}s)'.format(parser.epg_count(), time.time() - epg_start)]
+                        result = [int(time.time()), EPG.OK, '{} ({:.2f}s + {:.2f}s)'.format(parser.epg_count(), process_took, parser_took)]
                         epg.results.insert(0, result)
 
                     if result[1] == EPG.ERROR:
@@ -604,9 +665,16 @@ class Merger(object):
 
                 _out.write(b'</tv>')
 
+            if settings.GZ_EPG.value:
+                dst = epg_path_tmp + '.gz'
+                with open(epg_path_tmp, "rb") as f_in:
+                    with gzip.open(dst, "wb") as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                remove_file(epg_path_tmp)
+                epg_path_tmp = dst
+
             remove_file(working_path)
             shutil.move(epg_path_tmp, working_path)
-
             safe_copy(working_path, epg_path)
         finally:
             database.close()

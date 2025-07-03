@@ -33,6 +33,15 @@ from slyguy.exceptions import Error
 from slyguy.constants import *
 
 
+def remove_kodi_formatting(title):
+    # Remove tags like [b], [/b], [i], [/i], [u], [/u], [color=...], [/color]
+    return re.sub(r'\[/?[a-z]+(?:=[^\]]+)?\]', '', title, flags=re.IGNORECASE)
+
+
+def get_qr_img(qr_data, size=324):
+    return 'http://api.qrserver.com/v1/create-qr-code/?data={}&size={}x{}'.format(qr_data, size, size)
+
+
 def run_plugin(path, wait=False):
     if wait:
         dirs, files = xbmcvfs.listdir(path)
@@ -41,15 +50,20 @@ def run_plugin(path, wait=False):
         xbmc.executebuiltin('RunPlugin({})'.format(path))
         return [], []
 
+
 def fix_url(url):
     parse = urlparse(url)
-    parse = parse._replace(path=re.sub('/{2,}','/',parse.path))
-    return urlunparse(parse)
+    if not parse.path.lower().startswith(('/https://', '/http://')):
+        parse = parse._replace(path=re.sub('/{2,}','/',parse.path))
+    url = urlunparse(parse)
+    return url
+
 
 def add_url_args(url, params=None):
     req = PreparedRequest()
     req.prepare_url(url, params)
     return req.url
+
 
 def check_port(port=0, default=False):
     try:
@@ -59,6 +73,7 @@ def check_port(port=0, default=False):
             return s.getsockname()[1]
     except:
         return default
+
 
 def kodi_db(name):
     options = []
@@ -404,33 +419,47 @@ def process_brightcove(data):
             art = False,
         )
     elif source['type'] == 'widevine':
-        return plugin.Item(
+        item = plugin.Item(
             path = source['source']['src'],
             inputstream = inputstream.Widevine(license_key=source['source']['key_systems']['com.widevine.alpha']['license_url'], mimetype=source['mimetype'], manifest_type='mpd' if source['mimetype'] == 'application/dash+xml' else 'hls'),
             art = False,
         )
+
+        try:
+            item.headers = {'Authorization': 'Bearer {}'.format(source['source']['key_systems']['authorization']['token'])}
+        except KeyError:
+            pass
+
+        return item
     else:
         raise Error(_.NO_BRIGHTCOVE_SRC)
 
-def get_system_arch():
-    if xbmc.getCondVisibility('System.Platform.Android'):
-        system = 'Android'
+
+# TODO: Cache me
+def get_system():
+    if IS_ANDROID:
+        return 'Android'
     elif xbmc.getCondVisibility('System.Platform.WebOS') or os.path.exists('/var/run/nyx/os_info.json'):
-        system = 'WebOS'
+        return 'WebOS'
     elif xbmc.getCondVisibility('System.Platform.UWP') or '4n2hpmxwrvr6p' in xbmc.translatePath('special://xbmc/'):
-        system = 'UWP'
+        return 'UWP'
     elif xbmc.getCondVisibility('System.Platform.Windows'):
-        system = 'Windows'
+        return 'Windows'
     elif xbmc.getCondVisibility('System.Platform.IOS'):
-        system = 'IOS'
+        return 'IOS'
     elif xbmc.getCondVisibility('System.Platform.TVOS'):
-        system = 'TVOS'
+        return 'TVOS'
     elif xbmc.getCondVisibility('System.Platform.Darwin'):
-        system = 'Darwin'
+        return 'Darwin'
     elif xbmc.getCondVisibility('System.Platform.Linux') or xbmc.getCondVisibility('System.Platform.Linux.RaspberryPi'):
-        system = 'Linux'
+        return 'Linux'
     else:
-        system = platform.system()
+        return platform.system()
+
+
+# TODO: Cache me
+def get_system_arch():
+    system = get_system()
 
     if system == 'Windows':
         arch = platform.architecture()[0].lower()
@@ -656,9 +685,8 @@ def fix_language(language=None):
         return None
 
     language = language.strip()
+    language = language.replace('_', '-')
     split = language.split('-')
-    if len(split) > 1 and split[1].lower() == split[0].lower():
-        return split[0].lower()
 
     # any non es-ES, treat as Spanish Argentina
     if len(split) > 1 and split[0].lower() == 'es':
@@ -670,9 +698,6 @@ def fix_language(language=None):
     if language.lower() == 'cmn-tw':
         return 'zh-TW'
 
-    if split[0].lower() == 'en':
-        return 'en'
-
     if language.lower() in ('nb','nn'):
         return 'no'
 
@@ -682,10 +707,10 @@ def fix_language(language=None):
     if language.lower() == 'lvs':
         return 'lv'
 
-    if len(split[0]) == 2 and KODI_VERSION < 20:
+    if len(split[0]) >= 2 and KODI_VERSION < 20:
         return split[0].lower()
 
-    return language
+    return '-'.join(split)
 
 
 def get_kodi_proxy():

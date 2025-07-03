@@ -8,7 +8,7 @@ from kodi_six import xbmcgui, xbmc
 
 from slyguy import settings, _
 from slyguy.constants import *
-from slyguy.router import add_url_args
+from slyguy.router import build_url, add_url_args
 from slyguy.smart_urls import get_dns_rewrites
 from slyguy.util import fix_url, set_kodi_string, hash_6, get_url_headers, get_headers_from_url, get_addon
 from slyguy.session import Session
@@ -223,11 +223,13 @@ class Item(object):
 
         if self.art:
             defaults = {
-                'poster': 'thumb',
                 'landscape': 'thumb',
                 'icon': 'thumb',
                 'banner': 'clearlogo',
             }
+
+            if info.get('mediatype') != 'episode':
+                defaults['poster'] = 'thumb'
 
             art = {}
             for key in self.art:
@@ -252,7 +254,11 @@ class Item(object):
                 self.properties['IsPlayable'] = 'true'
                 if self.path:
                     self.path = add_url_args(self.path, _play=1)
-                if KODI_VERSION < 20 or ROUTE_LIVE_TAG not in self.path:
+
+                # Kodi 21 and up correct for both
+                # Kodi 20 correct for PVR. Needs for vod
+                # Kodi 19 and below needs for both
+                if KODI_VERSION < 21 and (ROUTE_LIVE_TAG not in self.path or KODI_VERSION < 20):
                     # PlayNext added in Kodi 18
                     if KODI_VERSION > 17:
                         context_items.append((_.PLAY_NEXT, 'Action(PlayNext)'))
@@ -297,15 +303,22 @@ class Item(object):
         def get_url(url, plugin_proxy=False):
             _url = url.lower()
 
-            if os.path.exists(xbmc.translatePath(url)) or _url.startswith('special://') or (plugin_proxy and _url.startswith('plugin://')) or (is_http(_url) and self.use_proxy and not _url.startswith(proxy_path)) and settings.getBool('proxy_enabled', True):
+            if os.path.exists(xbmc.translatePath(url)):
+                # local path that isnt a supported manifest (eg. a mp4 trailer)
+                if not _url.endswith(('.mpd', '.m3u8', '.m3u', '.ism')):
+                    return url
+
+            if _url.startswith('special://') or (plugin_proxy and _url.startswith('plugin://')) or (is_http(_url) and self.use_proxy and not _url.startswith(proxy_path)) and settings.getBool('proxy_enabled', True):
                 url = u'{}{}'.format(proxy_path, url)
 
             return url
 
         def redirect_url(url):
-            parse = urlparse(url.lower())
-            if parse.netloc in REDIRECT_HOSTS and is_http(url):
-                url = Session().head(url).headers.get('location') or url
+            while urlparse(url).netloc.lower() in REDIRECT_HOSTS and is_http(url):
+                new_url = Session().head(url).headers.get('location')
+                if not new_url:
+                    break
+                url = new_url
             return url
 
         license_url = None
@@ -341,8 +354,10 @@ class Item(object):
             if headers:
                 li.setProperty('{}.stream_headers'.format(self.inputstream.addon_id), headers)
                 li.setProperty('{}.manifest_headers'.format(self.inputstream.addon_id), headers)
+                li.setProperty('{}.common_headers'.format(self.inputstream.addon_id), headers)
 
-            if 'original_language' in self.proxy_data:
+            # IA does not support HLS original language attribute (only dash) so need to use property
+            if self.proxy_data.get('original_language'):
                 li.setProperty('{}.original_audio_language'.format(self.inputstream.addon_id), self.proxy_data['original_language'])
 
             if KODI_VERSION >= 21:
@@ -393,9 +408,9 @@ class Item(object):
                 proxy_data['middleware'][url] = {'type': MIDDLEWARE_CONVERT_SUB}
                 mimetype = 'text/vtt'
 
-            proxy_url = '{}{}.srt'.format(language, '.forced' if forced else '')
+            # kodi language urls only support basic language (no regional)
+            proxy_url = '{}{}.srt'.format(language.split('-')[0], '.forced' if forced else '')
             proxy_data['path_subs'][proxy_url] = url
-
             return u'{}{}'.format(proxy_path, proxy_url)
 
         if self.path and playing:
@@ -423,9 +438,10 @@ class Item(object):
                     'audio_whitelist': settings.get('audio_whitelist', ''),
                     'subs_whitelist':  settings.get('subs_whitelist', ''),
                     'audio_description': settings.getBool('audio_description', True),
+                    'interface_language': xbmc.getLanguage(xbmc.ISO_639_1),
                     'subs_forced': settings.getBool('subs_forced', True),
                     'subs_non_forced': settings.getBool('subs_non_forced', True),
-                    'remove_framerate': False,
+                    'remove_framerate': settings.REMOVE_FRAMERATE.value,
                     'subtitles': [],
                     'path_subs': {},
                     'addon_id': ADDON_ID,

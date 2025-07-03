@@ -64,3 +64,15 @@ msgstr ""
 msgctxt "#30015"
 msgid "Featured"
 msgstr ""
+
+msgctxt "#30016"
+msgid "My Shows"
+msgstr ""
+
+msgctxt "#30017"
+msgid "Remove from My Shows"
+msgstr ""
+
+msgctxt "#30018"
+msgid "Add to My Shows"
+msgstr ""

@@ -8,7 +8,8 @@ TYPE_IPTV_MERGE = 1
 TYPE_IPTV_MANAGER = 2
 TYPE_INTEGRATION = 3
 
-DEFAULT_USERAGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+# avoid any spacers / % as that causes ffmpeg direct to crash (https://github.com/xbmc/inputstream.ffmpegdirect/issues/229)
+DEFAULT_USERAGENT = 'otg/1.5.1'
 
 INTEGRATIONS = {
     'plugin.video.jiotv': {

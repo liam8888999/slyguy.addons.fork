@@ -2,6 +2,8 @@ import socket
 import json
 import codecs
 import arrow
+import sys
+import io
 from xml.sax.saxutils import escape
 
 from kodi_six import xbmc
@@ -9,6 +11,19 @@ from six.moves.urllib.parse import parse_qsl, urlparse, urlencode, urlunparse
 
 from slyguy.log import log
 from slyguy.constants import CHUNK_SIZE, KODI_VERSION
+
+
+def safe_escape(str, format=u"{}"):
+    if not str:
+        return u''
+
+    try:
+        str = escape(str)
+    except Exception as e:
+        log.warning("iptv_manager.py - Failed to escape '{}'. Skipping {}".format(str, format))
+        return u''
+    else:
+        return format.format(str)
 
 
 def process_path(path, file_path):
@@ -46,6 +61,7 @@ def _get_data(plugin_url):
     url_parts[4] = urlencode(query)
     plugin_url = urlunparse(url_parts)
 
+    log.info("iptv_manager.py - Calling: {}".format(plugin_url))
     xbmc.executebuiltin('RunPlugin({})'.format(plugin_url))
 
     try:
@@ -100,22 +116,29 @@ def _write_raw(file_path, data):
 
 
 def _write_epg(file_path, data):
+    count = 0
     with codecs.open(file_path, 'w', encoding='utf8') as f:
         f.write(u'<?xml version="1.0" encoding="utf-8" ?><tv>')
 
         for channel_id in data['epg']:
             f.write(u'<channel id="{}"></channel>'.format(escape(channel_id)))
             for item in data['epg'][channel_id]:
-                try:
-                    if not item.get('title') or not item.get('start') or not item.get('stop'):
-                        log.debug('IPTV Manager - Skipping item as missing data: {}'.format(item))
-                        continue
+                # RAW XMLTV data
+                if not isinstance(item, dict):
+                    f.write(item)
+                    continue
 
+                if not item.get('title') or not item.get('start') or not item.get('stop'):
+                    log.debug('iptv_manager.py - Skipping item as missing required data: {}'.format(item))
+                    continue
+
+                buffer = io.StringIO()
+                try:
                     title = item['title']
                     if KODI_VERSION < 19 and item.get('stream'):
                         title = u'{} [COLOR green]\u2022[/COLOR][COLOR vod="{}"][/COLOR]'.format(title, item['stream'])
 
-                    f.write(u'<programme start="{start}" stop="{stop}" channel="{channel}"{vod}><title>{title}</title>'.format(
+                    buffer.write(u'<programme start="{start}" stop="{stop}" channel="{channel}"{vod}><title>{title}</title>'.format(
                         start = arrow.get(item['start']).format('YYYYMMDDHHmmss Z'),
                         stop = arrow.get(item['stop']).format('YYYYMMDDHHmmss Z'),
                         channel = escape(channel_id),
@@ -123,48 +146,49 @@ def _write_epg(file_path, data):
                         title = escape(title),
                     ))
 
-                    if item.get('subtitle'):
-                        f.write(u'<sub-title>{}</sub-title>'.format(escape(item['subtitle'])))
-                    if item.get('description'):
-                        f.write(u'<desc>{}</desc>'.format(escape(item['description'])))
-                    if item.get('date'):
-                        f.write(u'<date>{}</date>'.format(escape(item['date'])))
-                    if item.get('image'):
-                        f.write(u'<icon src="{}"/>'.format(escape(item['image'])))
-                    if item.get('episode'):
-                        f.write(u'<episode-num system="onscreen">{}</episode-num>'.format(escape(item['episode'])))
+                    buffer.write(safe_escape(item.get('subtitle'), u'<sub-title>{}</sub-title>'))
+                    buffer.write(safe_escape(item.get('description'), u'<desc>{}</desc>'))
+                    buffer.write(safe_escape(item.get('date'), u'<date>{}</date>'))
+                    buffer.write(safe_escape(item.get('image'), u'<icon src="{}"/>'))
+                    buffer.write(safe_escape(item.get('episode'), u'<episode-num system="onscreen">{}</episode-num>'))
 
                     if item.get('genre'):
                         if not isinstance(item['genre'], list):
                             item['genre'] = [item['genre']]
 
                         for genre in item['genre']:
-                            f.write(u'<category>{}</category>'.format(escape(genre)))
+                            buffer.write(safe_escape(genre, u'<category>{}</category>'))
 
                     if item.get('credits'):
-                        f.write(u'<credits>')
+                        buffer.write(u'<credits>')
                         for credit in item['credits']:
                             if not credit.get('type') or not credit.get('name'):
                                 continue
 
-                            if credit['type'] in ('actor', 'presenter', 'commentator', 'guest'):
-                                elem = u'<actor role="{role}">{name}</actor>' if credit.get('role') else u'<actor>{}</actor>'
-                            elif credit['type'] in ('director', 'producer'):
-                                elem = u'<director>{name}</director>'
-                            elif credit['type'] in ('writer', 'adapter', 'composer', 'editor'):
-                                elem = u'<writer>{name}</writer>'
-                            else:
+                            try:
+                                if credit['type'] in ('actor', 'presenter', 'commentator', 'guest'):
+                                    if credit.get('role'):
+                                        buffer.write(u'<actor role="{}">{}</actor>'.format(escape(credit['role']), escape(credit['name'])))
+                                    else:
+                                        buffer.write(u'<actor>{}</actor>'.format(escape(credit['name'])))
+                                elif credit['type'] in ('director', 'producer'):
+                                    buffer.write(u'<director>{}</director>'.format(escape(credit['name'])))
+                                elif credit['type'] in ('writer', 'adapter', 'composer', 'editor'):
+                                    buffer.write(u'<writer>{}</writer>'.format(escape(credit['name'])))
+                            except Exception as e:
+                                log.error('iptv_manager.py - Could not parse credits: {} ({})'.format(credit, str(e)))
                                 continue
 
-                            f.write(elem.format(**credit))
-
-                    f.write('</programme>')
+                        buffer.write(u'</credits>')
+                    buffer.write(u'</programme>')
                 except Exception as e:
                     # When we encounter an error, log an error, but don't error out for the other programs
-                    log.debug('IPTV Manager - Could not parse item: {}'.format(item))
-                    log.exception(e)
-
+                    log.error('iptv_manager.py - Could not parse programme: {} ({})'.format(item, str(e)))
+                else:
+                    f.write(buffer.getvalue())
+                    count += 1
         f.write(u'</tv>')
+    log.info('iptv_manager.py - Wrote {} EPG programme entries'.format(count))
 
 
 def _write_playlist(file_path, channels):
@@ -187,3 +211,4 @@ def _write_playlist(file_path, channels):
             for key in channel.get('kodiprops', {}):
                 f.write(u'#KODIPROP:{key}={value}\n'.format(key=key, value=channel['kodiprops'][key]))
             f.write(u'{stream}\n\n'.format(**channel))
+    log.info('iptv_manager.py - Wrote {} M3U8 channel entries'.format(len(channels)))

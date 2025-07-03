@@ -124,7 +124,7 @@ class BaseLanguage(object):
     PLAY_FROM_START             = 32064
     PLAY_FROM_LIVE              = 32065
     PLAY_FROM                   = 32067
-    QUALITY_BITRATE             = 32068
+    QUALITY_LABEL               = 32068
     QUALITY_FPS                 = 32069
     SELECT_WV_VERSION           = 32070
     WV_UNKNOWN                  = 32071
@@ -254,7 +254,7 @@ class BaseLanguage(object):
     QUALITY_SELECT_MODE         = 32165
     WELCOME_SUPPORTER           = 32166
     SUPPORTER_NOT_FOUND         = 32167
-    INHERITED_SETTING           = 32168
+    COMMON                      = 32168
     PREFER_IPV4                 = 32169
     PREFER_IPV6                 = 32170
     ONLY_IPV4                   = 32171
@@ -307,9 +307,16 @@ class BaseLanguage(object):
     HELP                        = 32218
     PVR_LIVE_TV                 = 32219
     MERGE_NOT_SUPPORTED         = 32220
-    TRAILER_CONTEXT_MENU        = 32221
+    ADDON                       = 32221
     NOT_SET                     = 32222
     PROXY_PORT                  = 32223
+    SHOW_SUPPORT                = 32224
+    QUALITY_BITRATE             = 32225
+    WV_REQUIRE_IA               = 32226
+    WV_UNSUPPORTED_IA           = 32227
+    VALID_TO                    = 32228
+    EXTRAS                      = 32229
+    REMOVE_FRAMERATE            = 32230
 
     def __init__(self):
         self._addon_map = {}    

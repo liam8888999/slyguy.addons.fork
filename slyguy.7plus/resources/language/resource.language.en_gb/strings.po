@@ -57,3 +57,93 @@ msgstr ""
 msgctxt "#30019"
 msgid "Season {number}"
 msgstr ""
+
+msgctxt "#30020"
+msgid "Melbourne"
+msgstr ""
+
+msgctxt "#30021"
+msgid "Sydney"
+msgstr ""
+
+msgctxt "#30022"
+msgid "Brisbane"
+msgstr ""
+
+msgctxt "#30023"
+msgid "Perth"
+msgstr ""
+
+msgctxt "#30024"
+msgid "Adelaide"
+msgstr ""
+
+msgctxt "#30025"
+msgid "Cairns"
+msgstr ""
+
+msgctxt "#30026"
+msgid "Mackay"
+msgstr ""
+
+msgctxt "#30027"
+msgid "Sunshine Coast"
+msgstr ""
+
+msgctxt "#30028"
+msgid "Rockhampton"
+msgstr ""
+
+msgctxt "#30029"
+msgid "Toowoomba"
+msgstr ""
+
+msgctxt "#30030"
+msgid "Townsville"
+msgstr ""
+
+msgctxt "#30031"
+msgid "Region"
+msgstr ""
+
+msgctxt "#30032"
+msgid "Wide Bay"
+msgstr ""
+
+msgctxt "#30033"
+msgid "Failed to refresh token\n"
+"Try logout and login again"
+msgstr ""
+
+msgctxt "#30034"
+msgid "{error}\n"
+"You will need to login from main menu to confirm location for this device"
+msgstr ""
+
+msgctxt "#30035"
+msgid "{error}\n"
+"You will need to logout and login again to confirm new location"
+msgstr ""
+
+msgctxt "#30036"
+msgid "Changing will require you to confirm your new device id location\n"
+"Are you sure you want to reset it?"
+msgstr ""
+
+msgctxt "#30037"
+msgid "Device ID"
+msgstr ""
+
+msgctxt "#30038"
+msgid "403 denied on playback url\n"
+"This is often caused by account being banned. Try create a new account"
+msgstr ""
+
+msgctxt "#30039"
+msgid "Verify location?"
+msgstr ""
+
+msgctxt "#30040"
+msgid "Needed to watch some sport matches.\n"
+"Requires mobile phone with GPS."
+msgstr ""

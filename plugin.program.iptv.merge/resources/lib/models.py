@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from looseversion import LooseVersion
 
 import peewee
-from six.moves.urllib_parse import parse_qsl
+from six.moves.urllib_parse import parse_qsl, urlparse
 from kodi_six import xbmc, xbmcgui, xbmcaddon
 
 from slyguy import database, gui, plugin, inputstream
@@ -46,12 +46,13 @@ def parse_attribs(line):
 def play_channel(slug, **kwargs):
     channel = Channel.get_by_id(slug)
     split = channel.url.split('|')
+    parse = urlparse(split[0])
 
     if settings.getBool('iptv_merge_proxy', True):
         headers = {
             'seekable': '0',
             'referer': '%20',
-            'user-agent': DEFAULT_USERAGENT,
+            'user-agent': settings.DEFAULT_USER_AGENT.value.strip(),
         }
     else:
         headers = {}
@@ -69,11 +70,29 @@ def play_channel(slug, **kwargs):
     if len(split) > 1:
         headers.update(get_header_dict(split[1]))
 
-    manifest_type = channel.properties.pop('inputstream.adaptive.manifest_type', '')
-    license_type = channel.properties.pop('inputstream.adaptive.license_type', '')
-    license_key = channel.properties.pop('inputstream.adaptive.license_key', '')
-    channel.properties.pop('inputstream', None)
-    channel.properties.pop('inputstreamaddon', None)
+    addon_id = channel.properties.get('inputstream', None) or channel.properties.get('inputstreamaddon', None)
+    for property in ['drm', 'drm_legacy', 'license_type']:
+        drm = channel.properties.get('inputstream.adaptive.{}'.format(property), '')
+        if not drm:
+            continue
+
+        addon_id = 'inputstream.adaptive'
+        if 'inputstream.adaptive.manifest_type' not in channel.properties:
+            if parse.path.endswith('.m3u') or parse.path.endswith('.m3u8'):
+                channel.properties['inputstream.adaptive.manifest_type'] = 'hls'
+            elif parse.path.endswith('.mpd'):
+                channel.properties['inputstream.adaptive.manifest_type'] = 'mpd'
+            elif parse.path.endswith('.ism'):
+                channel.properties['inputstream.adaptive.manifest_type'] = 'ism'
+
+        if 'com.widevine.alpha' in drm.lower():
+            inputstream.install_widevine()
+
+        break
+
+    if addon_id:
+        get_addon(addon_id, required=False, install=True)
+        channel.properties['inputstream'] = channel.properties['inputstreamaddon'] = addon_id
 
     item = plugin.Item(
         label = channel.name,
@@ -86,30 +105,7 @@ def play_channel(slug, **kwargs):
 
     if channel.radio:
         item.quality = QUALITY_DISABLED
-
-    ## To do: support other IA Add-ons here (eg. ffmpeg.direct)
-    if license_type.lower() == 'com.widevine.alpha':
-        kwargs = {'license_key': license_key, 'manifest_type': manifest_type}
-        if '|' in license_key:
-            license_key, license_headers, challenge, response = license_key.split('|')
-            kwargs.update({
-                'license_key': license_key,
-                'license_headers': get_header_dict(license_headers) or None,
-                'challenge': challenge,
-                'response': response,
-            })
-        item.inputstream = inputstream.Widevine(**kwargs)
-
-    elif manifest_type.lower() == 'hls':
-        item.inputstream = inputstream.HLS(force=True, live=True)
-
-    elif manifest_type.lower() == 'ism':
-        item.inputstream = inputstream.Playready()
-
-    elif manifest_type.lower() == 'mpd':
-        item.inputstream = inputstream.MPD()
-
-    elif not channel.radio and '.m3u8' in split[0].lower() and settings.getBool('use_ia_hls_live'):
+    elif not addon_id and settings.getBool('use_ia_hls_live') and (parse.path.endswith('.m3u') or parse.path.endswith('.m3u8')):
         item.inputstream = inputstream.HLS(live=True)
 
     return item

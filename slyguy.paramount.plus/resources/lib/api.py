@@ -415,12 +415,17 @@ class API(object):
             return []
 
         self._refresh_token()
-        dma = self.dma()
+        dmas = self.dmas()
+
+        local_dma = [dma for dma in dmas if 'stationId' in dma]
+        local_dma = local_dma[0] if local_dma else None
+        if local_dma:
+            dmas.remove(local_dma)
 
         params = {
             'start': 0,
             '_clientRegion': self._config.country_code,
-            'dma': dma['dma'] if dma else None,
+            'dma': local_dma['dma'] if local_dma else None,
             'showListing': 'true',
             'addOns': '',
         }
@@ -429,11 +434,10 @@ class API(object):
 
         channels = []
         for row in data.get('channels', []):
-            if row.get('dma') and dma:
-                row['dma'] = dma['tokenDetails']
-            for listing in row.get('currentListing') or []:
-                if listing.get('dma') and dma:
-                    listing['dma'] = dma['tokenDetails']
+            if row.get('dma') and local_dma:
+                row['dma'] = local_dma['tokenDetails']
+            elif dmas and row.get('channelTypes') and 'event_dma' in row['channelTypes']:
+                row['dma'] = dmas[0]['tokenDetails']
             channels.append(row)
 
         return sorted(channels, key=lambda x: x['displayOrder'])
@@ -449,7 +453,7 @@ class API(object):
         return self._session.get('/v3.0/androidphone/live/channels/{slug}/listings.json'.format(slug=channel), params=self._params(params)).json()['listing']
 
     ## Dont cache as channels use short lived dma token
-    def dma(self):
+    def dmas(self):
         self._refresh_token()
 
         ip = settings.get('region_ip') or self._ip()
@@ -464,10 +468,10 @@ class API(object):
 
         data = self._session.get('/v3.0/androidphone/dma.json', params=self._params(params)).json()
         try:
-            return data['dmas'][0]
+            return data['dmas'] or []
         except:
             log.warning('Failed to get local CBS channel for IP address ({}). Server message: {}'.format(ip, data.get('message')))
-            return None
+            return []
 
     def logout(self):
         userdata.delete('user_id')

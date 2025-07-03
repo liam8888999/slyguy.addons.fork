@@ -1,10 +1,11 @@
-import threading
 import os
 import re
 import time
 import json
+import base64
 import shutil
 import binascii
+import threading
 
 from xml.dom.minidom import parseString
 from functools import cmp_to_key
@@ -18,7 +19,7 @@ from pycaption import detect_format, WebVTTWriter
 
 from slyguy import gui, settings, log, _
 from slyguy.constants import *
-from slyguy.util import check_port, remove_file, get_kodi_string, set_kodi_string, fix_url, run_plugin, lang_allowed, fix_language
+from slyguy.util import remove_file, get_kodi_string, set_kodi_string, fix_url, run_plugin, lang_allowed, fix_language, check_port
 from slyguy.exceptions import Exit
 from slyguy.session import RawSession
 from slyguy.router import add_url_args
@@ -389,9 +390,14 @@ class RequestHandler(BaseHTTPRequestHandler):
             elif not stream['res_ok']:
                 color = 'orange'
             else:
-                color = 'blue'
+                color = None
 
-            return _(_.QUALITY_BITRATE, bandwidth=int((stream['bandwidth']/10000.0))/100.00, resolution=resolution, fps=fps, codecs=codec_string, _color=color).replace('  ', ' ')
+            if stream['bandwidth']:
+                bandwidth = _(_.QUALITY_BITRATE, bitrate=int((stream['bandwidth']/10000.0))/100.00)
+            else:
+                bandwidth = ''
+
+            return _(_.QUALITY_LABEL, bandwidth=bandwidth, resolution=resolution, fps=fps, codecs=codec_string, _color=color, _strip=True).replace('  ', ' ')
 
         if self._session.get('selected_quality') is not None:
             if self._session['selected_quality'] == QUALITY_EXIT:
@@ -544,11 +550,12 @@ class RequestHandler(BaseHTTPRequestHandler):
         ac3_enabled = self._session.get('ac3', False)
         ec3_enabled = self._session.get('ec3', False)
 
-        original_language = self._session.get('original_language', '')
+        original_language = self._session.get('original_language') or ''
+        interface_language = self._session.get('interface_language') or ''
         audio_whitelist = [x.strip().lower() for x in self._session.get('audio_whitelist', '').split(',') if x]
         subs_whitelist = [x.strip().lower() for x in self._session.get('subs_whitelist', '').split(',') if x]
-        default_languages = [x.strip().lower() for x in self._session.get('default_language', '').split(',') if x]
-        default_subtitles = [x.strip().lower() for x in self._session.get('default_subtitle', '').split(',') if x]
+        user_default_languages = [x.strip().lower() for x in self._session.get('default_language', '').split(',') if x]
+        user_default_subtitles = [x.strip().lower() for x in self._session.get('default_subtitle', '').split(',') if x]
         max_bandwidth = self._session.get('max_bandwidth') or float('inf')
         max_width = self._session.get('max_width') or float('inf')
         max_height = self._session.get('max_height') or float('inf')
@@ -643,7 +650,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                     if 'video' in attribs.get('mimeType', '') and not is_trick:
                         is_hdr = False
                         for supplem in adap_set.getElementsByTagName('SupplementalProperty'):
-                            if supplem.getAttribute('schemeIdUri') == 'http://dashif.org/metadata/hdr':
+                            if supplem.getAttribute('schemeIdUri') == 'http://dashif.org/metadata/hdr' or \
+                                    (supplem.getAttribute('schemeIdUri') == 'urn:mpeg:mpegB:cicp:TransferCharacteristics' and supplem.getAttribute('value') == '16'):
                                 is_hdr = True
                                 break
 
@@ -793,6 +801,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         ## Fix up languages
         subs = []
         audios = []
+        default_languages = []
+        default_subtitles = []
         for adap_set in root.getElementsByTagName('AdaptationSet'):
             language = adap_set.getAttribute('lang')
             if not language:
@@ -814,7 +824,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                     adap_set.setAttribute('original', 'true')
 
                 # only remove languages that are not original and not in whitelist or default languages
-                if audio_whitelist and not lang_allowed(language, audio_whitelist + default_languages + [original_language]):
+                if audio_whitelist and not lang_allowed(language, audio_whitelist + default_languages + user_default_languages + [original_language]):
                     adap_set.parentNode.removeChild(adap_set)
                     log.debug('Removed audio adapt set: {}'.format(adap_set.getAttribute('id')))
                     continue
@@ -854,32 +864,44 @@ class RequestHandler(BaseHTTPRequestHandler):
                     adap_set.setAttribute('original', 'true')
 
                 # only remove subs that are not in whitelist or default subs
-                if subs_whitelist and not lang_allowed(language, subs_whitelist + default_subtitles):
+                if subs_whitelist and not lang_allowed(language, subs_whitelist + default_subtitles + user_default_subtitles):
                     adap_set.parentNode.removeChild(adap_set)
                     log.debug('Removed subtitle adapt set: {}'.format(adap_set.getAttribute('id')))
                     continue
 
                 subs.append([language, adap_set])
 
-        def set_default_laguage(defaults, rows):
+        def set_default_laguage(user_defaults, found_defaults, rows):
+            langs = []
+            for entry in user_defaults:
+                if entry == "default":
+                    langs.extend(found_defaults)
+                elif entry == "original":
+                    langs.append(original_language)
+                elif entry == "interface":
+                    langs.append(interface_language)
+                else:
+                    langs.append(entry)
+
+            langs = [x.strip() for x in langs if x.strip()]
+            if not langs:
+                langs = found_defaults
+
             found = False
-            for default in defaults:
-                default = original_language if default == 'original' else default
-                if not default:
+            for lang in langs:
+                if not lang:
                     continue
 
                 for row in rows:
-                    if lang_allowed(row[0], [default]):
+                    if lang_allowed(row[0], [lang]):
                         row[1].setAttribute('default', 'true')
                         found = True
 
                 if found:
                     break
 
-        #fallback to original if default languages not found
-        default_languages.append('original')
-        set_default_laguage(default_languages, audios)
-        set_default_laguage(default_subtitles, subs)
+        set_default_laguage(user_default_languages, default_languages, audios)
+        set_default_laguage(user_default_subtitles, default_subtitles, subs)
         ################
 
         ## Convert BaseURLS
@@ -1052,20 +1074,23 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         audio_whitelist = [x.strip().lower() for x in self._session.get('audio_whitelist', '').split(',') if x]
         subs_whitelist = [x.strip().lower() for x in self._session.get('subs_whitelist', '').split(',') if x]
-        original_language = self._session.get('original_language', '').lower().strip()
-        default_languages = [x.strip().lower() for x in self._session.get('default_language', '').split(',') if x]
-        default_subtitles = [x.strip().lower() for x in self._session.get('default_subtitle', '').split(',') if x]
+        original_language = self._session.get('original_language') or ''
+        interface_language = self._session.get('interface_language') or ''
+        user_default_languages = [x.strip().lower() for x in self._session.get('default_language', '').split(',') if x]
+        user_default_subtitles = [x.strip().lower() for x in self._session.get('default_subtitle', '').split(',') if x]
         max_bandwidth = self._session.get('max_bandwidth') or float('inf')
         max_width = self._session.get('max_width') or float('inf')
         max_height = self._session.get('max_height') or float('inf')
 
         stream_inf = None
-        streams, all_streams, urls, metas = [], [], [], []
+        streams = []
         audios = []
         subs = []
         video = []
         new_lines = []
         audio_groups = {}
+        default_languages = []
+        default_subtitles = []
 
         for line in m3u8.splitlines():
             if not line.strip():
@@ -1083,7 +1108,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                         attribs['DEFAULT'] = 'NO'
                         default_languages.append(language)
 
-                    if not audio_whitelist or lang_allowed(language, audio_whitelist + default_languages + [original_language]):
+                    if not audio_whitelist or lang_allowed(language, audio_whitelist + default_languages + user_default_languages + [original_language]):
                         audios.append(attribs)
 
                 elif attribs.get('TYPE') == 'SUBTITLES' and lang_allowed(language, subs_whitelist):
@@ -1091,7 +1116,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                         attribs['DEFAULT'] = 'NO'
                         default_subtitles.append(language)
 
-                    if not subs_whitelist or lang_allowed(language, subs_whitelist + default_subtitles):
+                    if not subs_whitelist or lang_allowed(language, subs_whitelist + default_subtitles + user_default_subtitles):
                         subs.append(attribs)
 
             elif line.startswith('#EXT-X-STREAM-INF'):
@@ -1105,7 +1130,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                 resolution = _remove_quotes(attribs.get('RESOLUTION', ''))
                 frame_rate = _remove_quotes(attribs.get('FRAME-RATE', ''))
                 video_range = _remove_quotes(attribs.get('VIDEO-RANGE', ''))
-
                 audio_group = _remove_quotes(attribs.get('AUDIO', ''))
                 audio_groups[audio_group] = codecs
 
@@ -1116,14 +1140,13 @@ class RequestHandler(BaseHTTPRequestHandler):
                 except:
                     width = height = 0
 
-                url = line
-                if '://' in url:
-                    url = '/'+'/'.join(url.lower().split('://')[1].split('/')[1:])
-
                 if video_range == 'PQ':
                     codecs.append('hdr')
 
-                stream_data = {'bandwidth': bandwidth, 'width': width, 'height': height, 'frame_rate': frame_rate, 'codecs': codecs, 'url': url, 'full_url': line, 'index': len(video), 'res_ok': True, 'compatible': True}
+                key = '{}{}{}{}'.format(attribs.get('CODECS', ''), attribs.get('BANDWIDTH', ''), attribs.get('RESOLUTION', ''), attribs.get('FRAME-RATE', '')).strip()
+                if not key:
+                    key = line # full url
+                stream_data = {'bandwidth': bandwidth, 'width': width, 'height': height, 'frame_rate': frame_rate, 'codecs': codecs, 'key': key, 'full_url': line, 'index': len(video), 'res_ok': True, 'compatible': True}
                 if stream_data['bandwidth'] > max_bandwidth*1000000:
                     stream_data['res_ok'] = False
 
@@ -1142,55 +1165,69 @@ class RequestHandler(BaseHTTPRequestHandler):
                 if not h265_enabled and codec_string == H265:
                     stream_data['compatible'] = False
 
-                if stream_data['url'] not in urls and stream_inf not in metas:
-                    streams.append(stream_data)
-                    urls.append(stream_data['url'])
-                    metas.append(stream_inf)
-
-                all_streams.append(stream_data)
+                streams.append(stream_data)
                 video.append([attribs, line])
                 stream_inf = None
             else:
                 new_lines.append(line)
 
+        unique_streams = {}
+        for stream in streams:
+            if stream['key'] not in unique_streams:
+                unique_streams[stream['key']] = stream
+
         # select quality
-        selected = self._quality_select(streams)
+        selected = self._quality_select(list(unique_streams.values()))
         if selected:
             if self._session.get('custom_quality'):
                 raise Redirect(selected['full_url'])
 
             adjust = 0
-            for stream in all_streams:
-                if stream['full_url'] != selected['full_url']:
+            for stream in streams:
+                # may have backup streams with same meta, keep them!
+                if stream['key'] != selected['key']:
                     video.pop(stream['index']-adjust)
                     adjust += 1
-        elif any(x['compatible'] and x['res_ok'] for x in all_streams):
+
+        elif any(x['compatible'] and x['res_ok'] for x in streams):
             # skip quality, remove non-ok streams
             adjust = 0
-            for stream in all_streams:
+            for stream in streams:
                 if not stream['compatible'] or not stream['res_ok']:
                     video.pop(stream['index']-adjust)
                     adjust += 1
 
-        def set_default_laguage(defaults, rows):
+        def set_default_laguage(user_defaults, found_defaults, rows):
+            langs = []
+            for entry in user_defaults:
+                if entry == "default":
+                    langs.extend(found_defaults)
+                elif entry == "original":
+                    langs.append(original_language)
+                elif entry == "interface":
+                    langs.append(interface_language)
+                else:
+                    langs.append(entry)
+
+            langs = [x.strip() for x in langs if x.strip()]
+            if not langs:
+                langs = found_defaults
+
             found = False
-            for default in defaults:
-                default = original_language if default == 'original' else default
-                if not default:
+            for lang in langs:
+                if not lang:
                     continue
 
                 for row in rows:
-                    if lang_allowed(row.get('LANGUAGE',''), [default]):
+                    if lang_allowed(row.get('LANGUAGE',''), [lang]):
                         row['DEFAULT'] = 'YES'
                         found = True
 
                 if found:
                     break
 
-        #fallback to original if default languages not found
-        default_languages.append('original')
-        set_default_laguage(default_languages, audios)
-        set_default_laguage(default_subtitles, subs)
+        set_default_laguage(user_default_languages, default_languages, audios)
+        set_default_laguage(user_default_subtitles, default_subtitles, subs)
 
         for attribs in audios:
             if not audio_description and attribs.get('CHARACTERISTICS','').lower() == 'public.accessibility.describes-video':
@@ -1293,7 +1330,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         m3u8 = re.sub(r'URI="/', r'URI="{}'.format(base_url), m3u8, flags=re.I|re.M)
 
         ## Convert to proxy paths
-        m3u8 = re.sub(r'(https?)://', r'{}\1://'.format(self.proxy_path), m3u8, flags=re.I)
+        m3u8 = re.sub(r'^(https?)://', r'{}\1://'.format(self.proxy_path), m3u8, flags=re.I|re.M)
+        m3u8 = re.sub(r'"(https?)://', r'"{}\1://'.format(self.proxy_path), m3u8, flags=re.I|re.M)
 
         m3u8 = m3u8.encode('utf8')
         response.stream.content = m3u8
@@ -1328,7 +1366,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             return response
 
         if self._post_data and ADDON_DEV:
-            with open(xbmc.translatePath('special://temp/request.data'), 'wb') as f:
+            with open(xbmc.translatePath('special://temp/post.data'), 'wb') as f:
                 f.write(self._post_data)
 
         ## Fix any double // in url
@@ -1434,8 +1472,11 @@ class RequestHandler(BaseHTTPRequestHandler):
 
             license_data = response.stream.content
             if ADDON_DEV:
-                with open(xbmc.translatePath('special://temp/license.data'), 'wb') as f:
-                    f.write(license_data)
+                with open(xbmc.translatePath('special://temp/license.request'), 'wb') as f:
+                    f.write(base64.b64encode(self._post_data))
+
+                with open(xbmc.translatePath('special://temp/license.response'), 'wb') as f:
+                    f.write(base64.b64encode(license_data))
 
             if response.ok and license_data:
                 log.info('WV License response OK and returned data')
@@ -1535,12 +1576,23 @@ class Proxy(object):
             return
 
         port = settings.PROXY_PORT.value
-        if not check_port(port):
+        if port is None:
+            port = check_port(DEFAULT_PROXY_PORT)
+            if not port:
+                port = check_port()
+                log.warning('Port {} not available. Switched to port {}'.format(DEFAULT_PROXY_PORT, port))
+
+        try:
+            self._server = ThreadedHTTPServer(('0.0.0.0', port), RequestHandler)
+        except Exception as e:
+            log.exception(e)
             settings.set('_proxy_path', '')
-            log.error('Unable to start proxy on port {}. Some addon features will not work. You can change port under slyguy advanced settings.'.format(port))
+            error = 'Unable to start Slyguy Proxy on port: {}. Some addon features will not work. You can change port under Slyguy Settings -> System'.format(port)
+            log.error(error)
+            gui.error(error)
             return
 
-        self._server = ThreadedHTTPServer(('0.0.0.0', port), RequestHandler)
+        settings.PROXY_PORT._set_value(port)
         self._server.allow_reuse_address = True
         self._httpd_thread = threading.Thread(target=self._server.serve_forever)
         self._httpd_thread.start()

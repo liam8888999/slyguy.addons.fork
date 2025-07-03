@@ -4,17 +4,16 @@ import re
 from kodi_six import xbmc, xbmcvfs
 from looseversion import LooseVersion
 
-from slyguy import plugin, gui, userdata
+from slyguy import plugin, gui, userdata, monitor
 from slyguy.util import set_kodi_setting, kodi_rpc, set_kodi_string, get_kodi_string, get_addon, run_plugin
 from slyguy.constants import ADDON_PROFILE, ADDON_ID, ADDON_NAME
 from slyguy.exceptions import PluginError
-from slyguy.monitor import monitor
 from slyguy.log import log
 
 from .language import _
 from .models import Playlist, EPG, Channel, Override, merge_info
 from .constants import *
-from .merger import Merger, check_merge_required
+from .merger import Merger, check_merge_required, epg_file_name
 from .settings import settings
 
 
@@ -538,7 +537,7 @@ def _setup(check_only=False, reinstall=True, run_merge=True):
 
     output_dir = settings.get('output_dir', '').strip() or ADDON_PROFILE
     playlist_path = os.path.join(output_dir, PLAYLIST_FILE_NAME)
-    epg_path = os.path.join(output_dir, EPG_FILE_NAME)
+    epg_path = os.path.join(output_dir, epg_file_name())
     path_type = '0'
 
     if is_multi_instance:

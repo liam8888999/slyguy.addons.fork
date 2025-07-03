@@ -1,5 +1,6 @@
 from slyguy.language import BaseLanguage
 
+
 class Language(BaseLanguage):
     STATE           = 30000
     AUTO            = 30001
@@ -17,5 +18,9 @@ class Language(BaseLanguage):
     HIDE_EXTRAS     = 30013
     CATEGORIES      = 30014
     FEATURED        = 30015
+    MY_SHOWS        = 30016
+    DEL_MY_SHOW     = 30017
+    ADD_MY_SHOW     = 30018
+
 
 _ = Language()

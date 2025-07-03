@@ -469,7 +469,7 @@ msgid "Play From?"
 msgstr ""
 
 msgctxt "#32068"
-msgid "{bandwidth:.2f} Mbit/s {resolution} {fps} {codecs}"
+msgid "{bandwidth} {resolution} {fps} {codecs}"
 msgstr ""
 
 msgctxt "#32069"
@@ -841,7 +841,7 @@ msgid "IPv4/IPv6 Preference"
 msgstr ""
 
 msgctxt "#32161"
-msgid "Visit [B]donate.slyguy.uk[/B] to become a supporter and then enter your Supporter ID here"
+msgid "Visit [B]donate.slyguy.uk[/B] or scan QR to become a supporter and then enter your Supporter ID here"
 msgstr ""
 
 msgctxt "#32162"
@@ -875,7 +875,7 @@ msgid "Supporter ID not found"
 msgstr ""
 
 msgctxt "#32168"
-msgid "[Common]"
+msgid "Common"
 msgstr ""
 
 msgctxt "#32169"
@@ -1090,7 +1090,7 @@ msgid "IPTV Merge integration is not available for this add-on"
 msgstr ""
 
 msgctxt "#32221"
-msgid "Trailer Context Menu Item"
+msgid "Add-on"
 msgstr ""
 
 msgctxt "#32222"
@@ -1099,4 +1099,36 @@ msgstr ""
 
 msgctxt "#32223"
 msgid "SlyGuy Proxy Listen Port"
+msgstr ""
+
+msgctxt "#32224"
+msgid "If you enjoy SlyGuy addons - please consider donating to unlock some extra perks!\n\nVisit [B]https://donate.slyguy.uk[/B] or scan the QR code"
+msgstr ""
+
+msgctxt "#32225"
+msgid "{bitrate:.2f} Mbit/s"
+msgstr ""
+
+msgctxt "#32226"
+msgid "This CDM requires at least version {version} of inputstream.adaptive add-on\n"
+"Please update your inputstream.adaptive otherwise expect it be unstable or not work at all.\n"
+"Select Yes to install anyway"
+msgstr ""
+
+msgctxt "#32227"
+msgid "This CDM requires a newer inputstream.adaptive add-on version\n"
+"that is not available for your Kodi version. You may need to manually find and install it.\n"
+"Select Yes to install anyway"
+msgstr ""
+
+msgctxt "#32228"
+msgid "{supporter_id} (Valid to {expires})"
+msgstr ""
+
+msgctxt "#32229"
+msgid "Extras"
+msgstr ""
+
+msgctxt "#32230"
+msgid "Remove framerate hints from manifests"
 msgstr ""
